@@ -13,7 +13,7 @@
   "localization": [
     {
       "language_tag": "en_US",
-      "/actions/htv": "HandTrackingValve",
+      "/actions/htv": "EchoXR Hands",
       "/actions/htv/in/SkeletonLeft": "Left hand skeleton",
       "/actions/htv/in/SkeletonRight": "Right hand skeleton"
     }

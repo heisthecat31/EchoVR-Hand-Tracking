@@ -1,0 +1,99 @@
+# EchoXR Hands settings. Lives next to EchoXRHands.dll.
+# Edit while the game is running -- it is re-read within half a second.
+
+Enabled = 1
+
+# Which hand-animator instance is YOU. Every player in the match has one.
+# The log (EchoXRHands.log) lists them; -1 poses ALL of them with your hands.
+TargetInstance = 0
+
+# Which of the game's two hand slots is your LEFT hand (0 or 1). Swap if mirrored.
+GameHandLeft = 0
+
+# 1 = leave a hand alone while the engine is wrapping it around a surface.
+RespectContact = 1
+
+# Drop tracking that is older than this (bridge closed / SteamVR hitch).
+StaleMs = 250
+
+# Reference pose: captured automatically the first time a hand is fully open
+# (every curl below OpenThreshold). Re-capture: EchoXRHands --calibrate
+AutoCalibrate = 1
+OpenThreshold = 0.12
+
+# Pose from the chassis rig's own bind pose (1, recommended) instead of a pose
+# captured in-game (0). Captured poses depend on what your real controllers are
+# doing at that moment; the rig is identical on every chassis.
+UseRig = 1
+# Degrees a fully OPEN finger straightens past the rig's relaxed rest pose.
+OpenStraighten = 12
+
+# Jitter filter (One Euro): steady when still, responsive when moving.
+# Still shaky -> lower FilterMinCutoff (e.g. 0.6). Laggy -> raise FilterBeta.
+FilterMinCutoff = 0.5
+FilterBeta = 4.0
+FilterDCutoff = 1.0
+
+# (captured-pose fallback only) Curl smoothing time constant in ms (0 = raw). Higher = steadier, more lag.
+SmoothingMs = 45
+# Curl changes smaller than this are treated as sensor noise.
+Deadband = 0.006
+# After a hand stops touching something, leave it to the engine this long
+# (stops flicker between the engine's contact pose and tracking).
+ContactHoldMs = 120
+
+# auto = detect at calibration (logged). standard / engine to force.
+QuatConvention = auto
+
+# Bend axis: auto = worked out from the hand's shape at calibration (fingers curl
+# into the palm, the thumb folds across it). x / y / z = a fixed local axis instead.
+# If everything curls the wrong way with auto, flip the signs to -1.
+BendAxis = auto
+LeftBendSign = 1
+RightBendSign = 1
+ThumbBendAxis = auto
+LeftThumbSign = 1
+RightThumbSign = 1
+
+# Degrees of bend at full curl, per joint (proximal, middle, distal)
+MaxCurl1 = 70
+MaxCurl2 = 95
+MaxCurl3 = 65
+ThumbMax1 = 22
+ThumbMax2 = 34
+ThumbMax3 = 34
+
+# Per-finger tuning, degrees. POSITIVE = toward the PINKY side of the hand
+# (mirrored per hand, so the same value suits both). Applies live.
+#   Spread = constant sideways lean at the knuckle
+#   Twist  = makes the finger drift sideways as it curls
+#   (TwistThumb: positive tilts the thumb's fold toward the palm)
+SpreadThumb = 0
+SpreadIndex = 0
+SpreadMiddle = 0
+SpreadRing = 0
+SpreadPinky = 0
+TwistThumb = 0
+TwistIndex = 0
+TwistMiddle = 0
+TwistRing = 0
+TwistPinky = 0
+
+# Finger spread from the Index's splay sensing. 0 = off.
+SplayAxis = y
+SplayDeg = 0
+
+# auto = work out the game's finger slots from the knuckle positions.
+# Or list the five game slots explicitly, e.g. index,middle,ring,pinky,thumb
+FingerOrder = auto
+
+# --- Sharing with other players -------------------------------------------
+# Everyone running this plugin sees each other's fingers. Your display name and
+# the names of players in your match are sent to the relay so it can pair you
+# up; nothing is stored. 0 = keep your tracking to yourself.
+Network = 1
+RelayUrl = wss://sparkapi-production-e6df.up.railway.app/htv/ws
+NetSendHz = 30
+# Leave empty: the plugin finds your name in the match. Set it only if the log
+# says it could not ("local player is ''").
+MyName =

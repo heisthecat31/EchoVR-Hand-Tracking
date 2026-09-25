@@ -52,3 +52,7 @@ Mkfile.old
 dkms.conf
 /friend_package
 /out
+/installer/stage
+/installer/obj
+/obj
+/xr/obj

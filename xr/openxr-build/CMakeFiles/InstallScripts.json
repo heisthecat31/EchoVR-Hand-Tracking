@@ -1,0 +1,11 @@
+{
+	"InstallScripts" : 
+	[
+		"J:/EchoVR-Tools-Launcher/EchoVR-Hand-Tracking/xr/openxr-build/cmake_install.cmake",
+		"J:/EchoVR-Tools-Launcher/EchoVR-Hand-Tracking/xr/openxr-build/include/cmake_install.cmake",
+		"J:/EchoVR-Tools-Launcher/EchoVR-Hand-Tracking/xr/openxr-build/include/openxr/cmake_install.cmake",
+		"J:/EchoVR-Tools-Launcher/EchoVR-Hand-Tracking/xr/openxr-build/src/cmake_install.cmake",
+		"J:/EchoVR-Tools-Launcher/EchoVR-Hand-Tracking/xr/openxr-build/src/loader/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

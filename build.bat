@@ -18,15 +18,17 @@ cd /d "%~dp0"
 if not exist out mkdir out
 if not exist obj mkdir obj
 
-echo Building HandTrackingValve.dll (plugin)...
-cl.exe /nologo /LD /MD /O2 /EHa /W3 /Ithird_party /Foobj\ /Fe"out\HandTrackingValve.dll" plugin\handtracking.cpp plugin\htv_net.cpp third_party\detours.lib ws2_32.lib winhttp.lib user32.lib
+echo Building EchoXRHands.dll (plugin)...
+cl.exe /nologo /LD /MD /O2 /EHa /W3 /Ithird_party /Foobj\ /Fe"out\EchoXRHands.dll" plugin\handtracking.cpp plugin\htv_net.cpp third_party\detours.lib ws2_32.lib winhttp.lib user32.lib
 if %ERRORLEVEL% neq 0 exit /b %ERRORLEVEL%
 
-echo Building HandTrackingBridge.exe...
-cl.exe /nologo /MD /O2 /EHsc /W3 /Ithird_party /Foobj\ /Fe"out\HandTrackingBridge.exe" bridge\bridge.cpp ws2_32.lib
+echo Building EchoXRHands.exe (finger bridge)...
+rc.exe /nologo /fo obj\bridge.res bridge\bridge.rc
+if %ERRORLEVEL% neq 0 exit /b %ERRORLEVEL%
+cl.exe /nologo /MD /O2 /EHsc /W3 /Ithird_party /Foobj\ /Fe"out\EchoXRHands.exe" bridge\bridge.cpp obj\bridge.res ws2_32.lib
 if %ERRORLEVEL% neq 0 exit /b %ERRORLEVEL%
 
-copy /Y handtracking_config.txt out\ >nul
+copy /Y EchoXRHands.txt out\ >nul
 copy /Y bridge\htv_actions.json out\ >nul
 copy /Y bridge\htv_bindings_knuckles.json out\ >nul
 del /q out\*.exp out\*.lib 2>nul

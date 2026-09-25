@@ -1,0 +1,21 @@
+# ninja log v7
+18	169	8120518078701340	src/loader/CMakeFiles/openxr_loader.dir/android_utilities.cpp.obj	622319d52da7f5de
+34	273	8120518078851371	src/loader/CMakeFiles/openxr_loader.dir/__/xr_generated_dispatch_table_core.c.obj	a8103f58402234d5
+42	280	8120518078941389	src/loader/CMakeFiles/openxr_loader.dir/loader.rc.res	b9b5e5d1872a0bd1
+40	1857	8120518078921386	src/loader/CMakeFiles/openxr_loader.dir/__/external/jsoncpp/src/lib_json/json_writer.cpp.obj	37005a813139dce3
+39	1999	8120518078901385	src/loader/CMakeFiles/openxr_loader.dir/__/external/jsoncpp/src/lib_json/json_value.cpp.obj	718bf33882ea9050
+31	2024	8120518078821345	src/loader/CMakeFiles/openxr_loader.dir/__/common/object_info.cpp.obj	fa22fceda4f24ee7
+25	2495	8120518078771342	src/loader/CMakeFiles/openxr_loader.dir/loader_logger_recorders.cpp.obj	ff061263702e5577
+26	2740	8120518078781339	src/loader/CMakeFiles/openxr_loader.dir/loader_properties.cpp.obj	c7468d6e169e51bf
+22	2750	8120518078741332	src/loader/CMakeFiles/openxr_loader.dir/loader_init_data.cpp.obj	3f532eef339432ca
+24	3233	8120518078761337	src/loader/CMakeFiles/openxr_loader.dir/loader_logger.cpp.obj	c409570ce7f2dac6
+36	3242	8120518078871365	src/loader/CMakeFiles/openxr_loader.dir/__/common/filesystem_utils.cpp.obj	1e79414bc2a075b8
+37	3373	8120518078891382	src/loader/CMakeFiles/openxr_loader.dir/__/external/jsoncpp/src/lib_json/json_reader.cpp.obj	bc82e169e825ea0
+23	3490	8120518078751346	src/loader/CMakeFiles/openxr_loader.dir/loader_instance.cpp.obj	2b0e8bc8893563f8
+32	3546	8120518078841361	src/loader/CMakeFiles/openxr_loader.dir/xr_generated_loader.cpp.obj	5a44d62f943e2e98
+29	4143	8120518078811349	src/loader/CMakeFiles/openxr_loader.dir/runtime_interface.cpp.obj	f3d51715438919a3
+20	4148	8120518078721323	src/loader/CMakeFiles/openxr_loader.dir/api_layer_interface.cpp.obj	f9cb9842d1f05bd4
+28	4318	8120518078791348	src/loader/CMakeFiles/openxr_loader.dir/manifest_file.cpp.obj	1b2cfc542767b678
+21	4412	8120518078731344	src/loader/CMakeFiles/openxr_loader.dir/loader_core.cpp.obj	620f99d417ee54b2
+4412	5669	8120518132214103	src/loader/openxr_loader.dll	99f101fab40cc6b5
+4412	5669	8120518132214103	src/loader/openxr_loader.lib	99f101fab40cc6b5

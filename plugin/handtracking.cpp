@@ -1,4 +1,4 @@
-// HandTrackingValve -- full per-finger hand tracking for Echo VR's chassis.
+// EchoXR Hands (formerly HandTrackingValve) -- full per-finger hand tracking for Echo VR's chassis.
 //
 // WHERE THIS HOOKS, AND WHY THERE
 // -------------------------------
@@ -112,7 +112,7 @@ static void Log(const char* fmt, ...) {
     va_end(ap);
     std::lock_guard<std::mutex> lock(g_LogMutex);
     FILE* f = nullptr;
-    if (fopen_s(&f, (g_Dir + "HandTrackingValve.log").c_str(), "a") == 0 && f) {
+    if (fopen_s(&f, (g_Dir + "EchoXRHands.log").c_str(), "a") == 0 && f) {
         SYSTEMTIME t; GetLocalTime(&t);
         fprintf(f, "[%02d:%02d:%02d.%03d] %s\n", t.wHour, t.wMinute, t.wSecond, t.wMilliseconds, buf);
         fclose(f);
@@ -1304,16 +1304,16 @@ static void UdpThread() {
 }
 
 static void LoadConfigFile(bool announce) {
-    std::ifstream in(g_Dir + "handtracking_config.txt");
+    std::ifstream in(g_Dir + "EchoXRHands.txt");
     if (!in.is_open()) return;
     std::stringstream ss; ss << in.rdbuf();
     int k = ApplyConfigText(ss.str());
-    if (announce) Log("config: %d key(s) from handtracking_config.txt", k);
+    if (announce) Log("config: %d key(s) from EchoXRHands.txt", k);
 }
 
 // Edit the config while the game runs; it is re-read within half a second.
 static void ConfigWatchThread() {
-    std::string path = g_Dir + "handtracking_config.txt";
+    std::string path = g_Dir + "EchoXRHands.txt";
     FILETIME last = {};
     for (;;) {
         WIN32_FILE_ATTRIBUTE_DATA d;
@@ -1356,7 +1356,7 @@ static void InstallThread() {
     uintptr_t base = (uintptr_t)GetModuleHandleA(nullptr);
     char exe[MAX_PATH] = {};
     GetModuleFileNameA(nullptr, exe, MAX_PATH);
-    Log("HandTrackingValve loaded into %s (base %p)", exe, (void*)base);
+    Log("EchoXR Hands loaded into %s (base %p)", exe, (void*)base);
 
     uintptr_t tp = base + RVA_THUMB_PISTON, gj = base + RVA_GET_JOINT, sj = base + RVA_SET_JOINT;
     if (!CheckSig(tp, SIG_THUMB_PISTON, sizeof(SIG_THUMB_PISTON), "UpdateThumbPistonAnimPoses") ||

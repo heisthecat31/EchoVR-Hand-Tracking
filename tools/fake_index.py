@@ -1,4 +1,4 @@
-"""Fake Valve Index finger tracking for HandTrackingValve -- test without an Index.
+"""Fake Valve Index finger tracking for EchoXR Hands -- test without an Index.
 
     python fake_index.py                  cycle through real hand gestures (default)
     python fake_index.py --mode random    random anatomically plausible poses
@@ -7,7 +7,7 @@
     python fake_index.py --hand left      only the left hand (default: both)
     python fake_index.py --mirror         both hands do the same pose
 
-It stands in for HandTrackingBridge.exe: it sends the exact HtvFrame packets the
+It stands in for EchoXRHands.exe: it sends the exact HtvFrame packets the
 bridge sends, to the plugin on 127.0.0.1:8768, at the bridge's ~120 Hz. Close the
 real bridge first -- both would feed the same port.
 
@@ -209,7 +209,7 @@ def main(argv=None):
     reply = send_text(sock, "Ping")
     if reply != "PONG":
         print("!! no reply from the plugin on 127.0.0.1:%d -- is Echo VR running with "
-              "HandTrackingValve.dll loaded? Sending anyway." % PORT)
+              "EchoXRHands.dll loaded? Sending anyway." % PORT)
     else:
         print("plugin is loaded (PONG)")
 

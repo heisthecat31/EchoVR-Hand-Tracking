@@ -1,11 +1,11 @@
-// HandTrackingBridge -- reads per-finger curl/splay from SteamVR and streams it
-// to the HandTrackingValve plugin inside echovr.exe over loopback UDP.
+// EchoXRHands.exe (the finger bridge) -- reads per-finger curl/splay from SteamVR and streams it
+// to the EchoXR Hands plugin inside echovr.exe over loopback UDP.
 //
-//   HandTrackingBridge.exe                 stream to the game (default)
-//   HandTrackingBridge.exe --print         stream AND print the live curls
-//   HandTrackingBridge.exe --set "Key = Value" [...]
+//   EchoXRHands.exe                 stream to the game (default)
+//   EchoXRHands.exe --print         stream AND print the live curls
+//   EchoXRHands.exe --set "Key = Value" [...]
 //                                          push live settings to the plugin
-//   HandTrackingBridge.exe --calibrate     recapture the open-hand reference
+//   EchoXRHands.exe --calibrate     recapture the open-hand reference
 //
 // WHY THIS IS A SEPARATE PROCESS
 // ------------------------------
@@ -93,7 +93,7 @@ static int SendText(const std::string& text) {
     sendto(g_Sock, text.c_str(), (int)text.size(), 0, (SOCKADDR*)&g_To, sizeof(g_To));
     char buf[256];
     int n = recv(g_Sock, buf, sizeof(buf) - 1, 0);
-    if (n <= 0) { printf("no reply -- is Echo VR running with HandTrackingValve.dll loaded?\n"); return 1; }
+    if (n <= 0) { printf("no reply -- is Echo VR running with EchoXRHands.dll loaded?\n"); return 1; }
     buf[n] = 0;
     printf("plugin: %s\n", buf);
     return 0;

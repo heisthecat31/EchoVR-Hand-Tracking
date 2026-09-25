@@ -183,7 +183,7 @@ static void NetMain() {
             continue;
         }
 
-        HINTERNET s = WinHttpOpen(L"HandTrackingValve/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
+        HINTERNET s = WinHttpOpen(L"EchoXRHands/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
                                   WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
         HINTERNET c = s ? WinHttpConnect(s, host.c_str(), port, 0) : nullptr;
         HINTERNET r = c ? WinHttpOpenRequest(c, L"GET", path.c_str(), nullptr, WINHTTP_NO_REFERER,

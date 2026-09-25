@@ -1,0 +1,19 @@
+#include "res.h"
+
+// paths are relative to the installer folder (build_installer.bat runs rc from there)
+IDI_APP       ICON   "logo\\echoxr.ico"
+
+IDR_PLUGIN    RCDATA "..\\out\\EchoXRHands.dll"
+IDR_CONFIG    RCDATA "..\\out\\EchoXRHands.txt"
+IDR_BRIDGE    RCDATA "..\\out\\EchoXRHands.exe"
+IDR_ACTIONS   RCDATA "..\\out\\htv_actions.json"
+IDR_BINDINGS  RCDATA "..\\out\\htv_bindings_knuckles.json"
+IDR_FAKEINDEX RCDATA "..\\tools\\fake_index.py"
+IDR_OPENVR    RCDATA "..\\xr\\Revive\\Externals\\openvr\\bin\\win64\\openvr_api.dll"
+IDR_OVRRT     RCDATA "..\\xr\\out\\LibOVRRT64_1.dll"
+IDR_XRLOADER  RCDATA "..\\xr\\out\\openxr_loader.dll"
+IDR_LAUNCHER  RCDATA "..\\xr\\out\\EchoXR.exe"
+IDR_LOADER    RCDATA "stage\\dbgcore.dll"
+IDR_NOTICES   RCDATA "stage\\THIRD_PARTY_NOTICES.txt"
+
+1 24 "setup.manifest"

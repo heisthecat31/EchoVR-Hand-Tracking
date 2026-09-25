@@ -1,72 +1,196 @@
-# HandTrackingValve
+<img src="installer/logo/echoxr.png" width="96" alt="EchoXR logo">
 
-Full per-finger Valve Index hand tracking on Echo VR's chassis hands.
+# EchoXR
 
-Echo animates fingers from three or four Touch inputs (trigger, grip, thumb
-touch), so middle, ring and pinky always move together. The chassis skeleton
-already has every finger joint (`EXP_L1_Index1..3`, `Middle1..3`, `Ring1..3`,
-`Pinky1..3`, `Thumb1..3`, and the same for `R1`). This mod drives those joints
-from the Index controllers' finger sensing.
+EchoXR runs **Echo VR on SteamVR through OpenXR**, with no Oculus app in the
+path, and adds **EchoXR Hands**: per-finger Valve Index hand tracking on Echo's
+chassis hands. The two parts are independent. EchoXR works with any headset
+SteamVR supports. EchoXR Hands works with or without EchoXR, as long as Echo
+loads plugins (see [Plugin loader](#plugin-loader)).
 
-## Pieces
+EchoXR Hands used to be called HandTrackingValve. The installer and the launcher
+both migrate old installs.
 
-| file | what it is |
+## What it does
+
+| | |
 | --- | --- |
-| `HandTrackingValve.dll` | the plugin: hooks the game and poses the finger joints |
-| `HandTrackingBridge.exe` | reads the Index finger curls from SteamVR and sends them to the plugin |
-| `htv_actions.json`, `htv_bindings_knuckles.json` | the bridge's SteamVR input manifest; keep them next to the exe |
-| `handtracking_config.txt` | settings; keep it next to the DLL |
+| **Echo on SteamVR** | Echo's Oculus calls (LibOVR) are answered by ReviveXR over OpenXR, pinned to SteamVR for each launch. Details: [xr/README.md](xr/README.md). |
+| **Your own fingers** | Every finger bends on its own, from the Index controllers' finger sensing. Echo normally moves middle, ring and pinky together from the grip button. |
+| **Other players' fingers** | The plugin sends your finger curls through a relay (`Network = 1`), and poses players who send theirs. |
+| **Auto-start** | `EchoXR.exe` can run the finger bridge alongside Echo and close it afterwards. |
+| **Install and update** | `EchoXRSetup.exe` is an installer with a GUI. The release zip needs nothing more than unzipping; `EchoXR.exe` does the setup on first launch. |
 
-**Why two processes:** inside `echovr.exe`, SteamVR input belongs to Revive. A
-process gets one action manifest, and Revive's has no skeleton actions. The
-bridge is its own SteamVR overlay app, with a manifest that asks for both hand
-skeletons. It sends frames to the plugin over `127.0.0.1:8768` at about 120 Hz.
+### What has been seen working
 
-## Install and run
+From the logs of real sessions on the current Echo build:
 
-1. Run `build.bat`. The output goes to `out\`.
-2. Put `HandTrackingValve.dll` and `handtracking_config.txt` in your plugin loader's folder.
-3. Put `HandTrackingBridge.exe` and the two JSON files anywhere you like, in the same folder.
-   The bridge loads `openvr_api.dll` from its own folder first, then Revive's
-   `C:\Program Files\Revive\openvr_api64.dll`.
-4. Start SteamVR, then run `HandTrackingBridge.exe --print`. The console shows live
-   curls. Open and close each finger and check the numbers move.
-5. Start Echo VR. Hold your hands **fully open** once: that captures the reference
-   pose (the game's relaxed pose becomes "curl = 0").
+- **EchoXR:** Echo starts and runs a full session on SteamVR/OpenXR 2.17.10, with
+  zero failed OpenXR calls.
+- **EchoXR Hands:** the plugin hooks the game and finds the local player in a
+  match. It receives the bridge's frames at about 120 Hz and calibrates.
+- **Relay:** the plugin connects to the relay and sends your fingers.
 
-`HandTrackingValve.log` next to the DLL records the hook, each calibration, the
-detected finger order, and the list of hand-animator instances.
+### Not confirmed yet
 
-### Commands
+- **Seeing another player's fingers.** Every session so far had no other player
+  running the plugin (`live peers 0`), so the receiving side has never been seen in
+  a match.
+- **Pose tuning.** The bend axis and direction are worked out from the rig
+  automatically. If a finger bends the wrong way, the settings below fix it; see
+  [First-run tuning](#first-run-tuning).
+
+### Limits
+
+- **It changes how hands look, not what they do.** Grabbing still uses the game's
+  own grip input.
+- **Other players see your tracked fingers only if they run the plugin.**
+  Everyone else sees the game's normal finger animation.
+- **One game build.** The patch for `echovr_openxr.exe` and the plugin's hooks
+  are for the current `echovr.exe` (35,397,120 bytes, May 2023). Both check the
+  bytes they change first, and refuse anything else instead of breaking the game.
+- **The finger bridge needs SteamVR and Valve Index controllers.** Without an Index
+  you can still see other players' fingers; `fake_index.py` sends test input.
+
+## Install
+
+### Release zip
+
+`EchoXR-v<version>.zip` unpacks into Echo's `bin\win10` folder, the one with
+`echovr.exe`:
 
 ```
-HandTrackingBridge.exe --print                  stream and show curls
-HandTrackingBridge.exe --calibrate              re-capture the open-hand reference
-HandTrackingBridge.exe --set "BendAxis = x"     change a setting live
-HandTrackingBridge.exe --ping                   check the plugin is loaded
+bin\win10\
+  EchoXR.exe                  the launcher
+  EchoXR\                     OpenXR runtime, loader, licences, README.txt
+    Hands\                    finger bridge (EchoXRHands.exe) and its SteamVR files
+      install\                plugin, default settings, plugin loader
 ```
 
-Editing `handtracking_config.txt` while the game runs also works; it is re-read
-within half a second.
+Run `EchoXR.exe` with SteamVR installed. On each launch it sets up whatever is
+missing or out of date, then starts Echo:
+
+- **`echovr_openxr.exe`:** a patched copy of `echovr.exe`, made on the player's
+  machine. No game file ships in the zip.
+- **Plugin loader:** installed following the [loader rules](#plugin-loader).
+- **Hand tracking plugin:** `plugins\EchoXRHands.dll` is copied in, or updated. The
+  old `HandTrackingValve.dll` is removed and its settings are kept.
+- **`EchoXR\echoxr.ini`:** created with `AutoStartHands = 1`. The zip doesn't ship
+  one, so unzipping a newer release never resets your choice.
+
+`EchoXR.exe --setup-only` does the setup without starting Echo.
+
+### Installer
+
+`EchoXRSetup.exe` finds Echo on its own, or you can browse to it. It shows each
+part as a switch:
+
+| switch | what it installs |
+| --- | --- |
+| Hand tracking | `plugins\EchoXRHands.dll` and `plugins\EchoXRHands.txt`. An existing `EchoXRHands.txt` is kept; new defaults go to `EchoXRHands.default.txt`. |
+| Finger bridge | `EchoXR\Hands\`: `EchoXRHands.exe`, its SteamVR manifest, `openvr_api.dll`, `fake_index.py` |
+| EchoXR runtime | `EchoXR.exe`, `EchoXR\` (runtime, OpenXR loader, licences) and the patched `echovr_openxr.exe` |
+| Start hand tracking with EchoXR | `EchoXR\echoxr.ini` `AutoStartHands = 1` or `0` |
+| Plugin loader | `dbgcore.dll`, following the [loader rules](#plugin-loader) |
+| Desktop shortcuts | `EchoXR.lnk` and `EchoXR Hands.lnk` |
+
+The installer also clears out pre-rename files. It removes
+`plugins\HandTrackingValve.dll` and the `HandTrackingBridge\` folder, and renames
+`handtracking_config.txt` to `EchoXRHands.txt`. Old desktop shortcuts into that
+install are replaced with the new ones. It warns if Echo or the bridge is running,
+and offers to rerun as administrator if Windows blocks the folder.
+
+Uninstall removes the switched-on parts. It keeps `EchoXRHands.txt`, and it keeps
+the loader unless the previous `dbgcore.dll` can be put back.
+
+To run it without the window:
+
+```
+EchoXRSetup.exe --silent [--dir <folder>] [--components <mask>] [--uninstall]
+```
+
+The mask bits are 1 hand tracking, 2 bridge, 4 EchoXR, 8 loader, 16 shortcuts and
+32 auto-start. The log is `%TEMP%\EchoXRSetup.log`.
+
+### Plugin loader
+
+The plugin is loaded by `dbgcore.dll`, a plugin loader that loads every DLL in
+`bin\win10\plugins\`. The zip and the installer apply the same rules
+(`xr/src/echoxr_common.h`):
+
+| found in `bin\win10` | what happens |
+| --- | --- |
+| no `dbgcore.dll` | the loader is installed |
+| the older 45 KB `dbgcore.dll` | the loader is installed, and the old file moves to `plugins\dbgcore_legacy.dll`, where it still loads |
+| any other `dbgcore.dll`, with a `plugins\` folder | kept, since it's already a plugin loader; only the plugin is added |
+| any other `dbgcore.dll`, no `plugins\` folder | left alone. The zip skips hand tracking. The installer replaces it only when you switch Plugin loader on, and saves the old file as `dbgcore.dll.bak`. |
+
+## Using it
+
+1. Start SteamVR.
+2. Run `EchoXR.exe` (or the EchoXR desktop shortcut). With auto-start on, the
+   finger bridge opens minimised next to Echo. Without it, run
+   `EchoXR\Hands\EchoXRHands.exe --print` yourself.
+3. In-game, hold both hands **fully open** once. That captures the reference pose:
+   the game's relaxed pose becomes "curl = 0".
+
+The bridge also takes commands:
+
+```
+EchoXRHands.exe --print                  stream and show the live curls
+EchoXRHands.exe --calibrate              re-capture the open-hand reference
+EchoXRHands.exe --set "BendAxis = x"     change a setting live
+EchoXRHands.exe --ping                   check the plugin is loaded
+```
+
+Settings are in `plugins\EchoXRHands.txt`. The plugin re-reads it within half a
+second, so you can edit it while you play.
+
+### Why a separate bridge
+
+Inside the game, SteamVR input belongs to the runtime, and a process gets exactly
+one SteamVR action manifest. That manifest has no hand-skeleton actions. The bridge
+is its own SteamVR overlay app, with a manifest that asks for both hand skeletons.
+It sends frames to the plugin over `127.0.0.1:8768`.
+
+### Finger sharing and privacy
+
+With `Network = 1` (the default), the plugin connects to
+`RelayUrl` (`wss://sparkapi-production-e6df.up.railway.app/htv/ws`). It sends:
+
+- your finger curls, 30 times a second (`NetSendHz`);
+- your display name;
+- the names of the players in your match, so the relay can pair you with other
+  players running the plugin.
+
+The relay doesn't store anything. `Network = 0` keeps your tracking to yourself.
 
 ## First-run tuning
 
-These are the parts that can only be found in-game:
-
 | symptom | fix |
 | --- | --- |
-| fingers don't move at all | check the log for `hooked` and `receiving tracking frames`; then `TargetInstance` (see below) |
+| fingers don't move at all | check `plugins\EchoXRHands.log` for `hooked` and `receiving tracking frames`; then `TargetInstance` |
 | someone else's hands move | the log lists instances; set `TargetInstance` to yours |
 | fingers bend backwards | flip `LeftBendSign` / `RightBendSign` |
-| fingers bend sideways or twist | change `BendAxis` (x/y/z) |
+| fingers bend sideways or twist | set `BendAxis` to `x`, `y` or `z` (default `auto`) |
 | left and right swapped | `GameHandLeft = 1` |
 | wrong finger moves | set `FingerOrder` explicitly, e.g. `index,middle,ring,pinky,thumb` |
 | thumb wrong | `ThumbBendAxis`, `LeftThumbSign` / `RightThumbSign` |
+| shaky / laggy | lower `FilterMinCutoff` / raise `FilterBeta` |
 
-## How it works
+## Logs
 
-Echo runs its frame as a table of gamespace tasks. Two belong to `CR15HandAnimatorCS`,
-back to back:
+| log | what's in it |
+| --- | --- |
+| `plugins\EchoXRHands.log` | hooks, calibrations, finger order, hand-animator instances, relay status every 5 s |
+| `EchoXR\launcher.log` | first-run setup, the runtime chosen, the bridge starting and stopping, Echo's exit code |
+| `EchoXR\runtime.log` | the OpenXR runtime and its extensions, and every failed OpenXR call |
+| `%TEMP%\EchoXRSetup.log` | what the installer wrote, kept, moved or removed |
+
+## How the hand tracking works
+
+Echo runs its frame as a table of gamespace tasks. Two belong to
+`CR15HandAnimatorCS`, back to back:
 
 | phase | task | address |
 | --- | --- | --- |
@@ -75,35 +199,40 @@ back to back:
 
 `UpdateFingerAnimPoses` only queues jobs (`echovr+0x99f830`, one per finger) for a
 hand whose **contact** weight is non-zero. Those jobs wrap the fingers around
-whatever the hand is touching. A hand touching nothing gets no jobs. So at
-`0x6009` the animation for that hand is already written and nothing else is
-still working on it. The hook poses those hands and then calls the original.
-Hands in contact are left to the engine (`RespectContact = 1`).
+whatever the hand is touching. A hand touching nothing gets no jobs, so at
+`0x6009` its animation is already written and nothing else is still working on it.
+The hook poses those hands and then calls the original. Hands in contact are left
+to the engine (`RespectContact = 1`).
 
 Joints are read and written with the engine's own accessors:
 
 - `get` `echovr+0x331bd0` returns `{quat xyzw, pos, scale}`.
 - `set` `echovr+0x37c8c0` writes a joint **and carries its children along**.
 
-Each finger is set proximal → middle → distal. Every joint gets its calibrated
-local rotation with a bend of `curl × MaxCurlN` degrees about the configured
-axis, so the game's grip animation is **replaced**, not stacked on top.
+Each finger is set proximal → middle → distal. Every joint gets its rest rotation
+from the chassis rig (`UseRig = 1`), with a bend of `curl × MaxCurlN` degrees. The
+game's grip animation is therefore **replaced**, not stacked on top.
 
-Offsets are for the single live build
-(`C:\Oculus\Games\Software\Software\ready-at-dawn-echo-arena\bin\win10\echovr.exe`).
-All three prologues are checked before hooking, and any mismatch leaves the game
-untouched. Any fault while posing turns the plugin off for the session rather
-than crashing.
+Other players' fingers come in through the relay. They're applied in
+`CR15RemotePlayerCS::UpdateCachePoseForPhysics` (`echovr+0xd77be0`, phase
+`0x600c`), and `CR15NetGame::Update` finds who is in the match.
 
-## Known limits
+Every hooked function's first bytes are checked before hooking, and any mismatch
+leaves the game untouched. A fault while posing turns the plugin off for the
+session rather than crashing the game.
 
-- **Local only.** Other players see your fingers the way the game networks them (a
-  compact finger state), not the tracked pose.
-- **Grabbing still uses the game's own grip input.** This changes what the hand
-  looks like, not what it does.
-- **Not yet tested in-game.** The hook point, the joint accessors and the struct
-  offsets come from disassembling the live build. The bend axis and sign, which
-  instance is you, and whether SteamVR sends skeletal input to an overlay app
-  while Echo has focus have not been seen working. The table above covers the
-  first two. For the last one, check that `--print` values keep moving while the
-  game is focused.
+## Building
+
+Everything builds with MSVC (Visual Studio 2026 toolset).
+
+| command | builds |
+| --- | --- |
+| `build.bat` | `out\EchoXRHands.dll` (plugin), `out\EchoXRHands.exe` (bridge), settings and manifests |
+| `xr\build_xr.bat` | `xr\out\LibOVRRT64_1.dll`, `openxr_loader.dll` and `EchoXR.exe`; see [xr/README.md](xr/README.md) |
+| `installer\build_installer.bat [--all]` | all of the above as needed, then `out\EchoXRSetup.exe` |
+| `python tools\make_release.py [--no-build]` | `out\release\EchoXR-v<VERSION>.zip` and `EchoXRSetup-v<VERSION>.exe` |
+| `python tools\gen_logo.py` | the logo in `installer\logo\` (SVG, PNG, ICO) |
+
+The plugin loader is staged from the game install into
+`installer\stage\dbgcore.dll` when the installer is built. The version number is
+in `VERSION`.
