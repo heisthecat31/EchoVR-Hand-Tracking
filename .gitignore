@@ -56,3 +56,7 @@ dkms.conf
 /installer/obj
 /obj
 /xr/obj
+# upstream checkouts (see xr/README.md "Building"; our Revive changes are in xr/patches/)
+/xr/Revive/
+/xr/OpenXR-SDK/
+/xr/ovr_sdk_pc/

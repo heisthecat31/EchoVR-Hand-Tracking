@@ -97,3 +97,12 @@ NetSendHz = 30
 # Leave empty: the plugin finds your name in the match. Set it only if the log
 # says it could not ("local player is ''").
 MyName =
+
+# --- Platform -----------------------------------------------------------------
+# Which platform your user ID says you are on, e.g. STM (Steam). Empty = leave it
+# (OVR-ORG). Your ID becomes STM-<number>, which the server sees as a separate
+# account. Read when the game starts.
+Platform =
+# The number after the prefix. Empty = keep it. For STM use your SteamID64
+# (17 digits, 7656119...): the server rejects login IDs under 10 characters.
+PlatformAccount =

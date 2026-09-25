@@ -58,7 +58,9 @@ to exit:
    SteamVR's `steamxr_win64.json` via the loader's `XR_RUNTIME_JSON` variable.
    This matters because some apps (the Virtual Desktop streamer, for one) keep
    making themselves the system-wide OpenXR runtime. `--runtime active` uses the
-   system runtime instead.
+   system runtime instead. Under Wine/Proton (it checks for `wine_get_version`) it
+   leaves the choice to Proton, whose registered runtime is `wineopenxr`; see
+   "Linux" in the top-level README.
 3. **Tells Echo a headset is present.** Echo checks for the named Windows event
    `OculusHMDConnected` before it starts VR; normally the Oculus service creates
    it. The launcher creates it when nothing else has.
@@ -97,14 +99,31 @@ with any other launch.
 
 Everything builds with MSVC (Visual Studio 2026 toolset) from `build_xr.bat`.
 
-Inputs, all fetched as source:
+Inputs, all fetched as source. The three checkouts aren't in this repository (they're
+in `.gitignore`); these are the exact commits the build uses:
 
-| Folder | What | Source |
-| --- | --- | --- |
-| `Revive/` | Revive (MIT), with its submodules | github.com/LibreVR/Revive |
-| `ovr_sdk_pc/` | Oculus PC SDK **1.55** headers and shim sources | github.com/sparsebase/ovr_sdk_win |
-| `OpenXR-SDK/` | OpenXR SDK 1.1.63 | github.com/KhronosGroup/OpenXR-SDK |
-| `openxr-build/` | the OpenXR loader, built with CMake + Ninja | built from `OpenXR-SDK/` |
+| Folder | What | Source | Commit |
+| --- | --- | --- | --- |
+| `Revive/` | Revive (MIT), with its submodules, plus `patches/revive-echoxr.patch` | github.com/LibreVR/Revive | `ab73167` |
+| `ovr_sdk_pc/` | Oculus PC SDK **1.55** headers and shim sources | github.com/sparsebase/ovr_sdk_win | `4b1d6b7` |
+| `OpenXR-SDK/` | OpenXR SDK 1.1.63 | github.com/KhronosGroup/OpenXR-SDK | `f2448a8` |
+| `openxr-build/` | the OpenXR loader, built with CMake + Ninja | built from `OpenXR-SDK/` | — |
+
+From the `xr` folder:
+
+```
+git clone --recursive https://github.com/LibreVR/Revive Revive
+git -C Revive checkout ab73167e2380135aee9fe9f68874ec7dd2912cb0
+git -C Revive submodule update --init --recursive
+git -C Revive apply ../patches/revive-echoxr.patch
+git clone https://github.com/sparsebase/ovr_sdk_win ovr_sdk_pc
+git -C ovr_sdk_pc checkout 4b1d6b7e86077062e5de33dda7d77b5790202c4c
+git clone https://github.com/KhronosGroup/OpenXR-SDK OpenXR-SDK
+git -C OpenXR-SDK checkout f2448a8797c85814aa892efc1ab8707900fbcc78
+```
+
+`patches/revive-echoxr.patch` holds the three SteamVR changes described below, plus
+the `runtime.log` hook in `Common.h`.
 
 The Oculus SDK has to be **1.55 or newer**. Echo asks for SDK minor version 55,
 and 1.43 is missing `ovrHmdColorDesc` and the separate audio-device error codes

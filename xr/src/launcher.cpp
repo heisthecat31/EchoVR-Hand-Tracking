@@ -225,6 +225,16 @@ int wmain(int argc, wchar_t** argv) {
     }
     std::wstring rt = ActiveOpenXRRuntime();
     Log(L"system OpenXR runtime: %ls", rt.empty() ? L"(none registered!)" : rt.c_str());
+    // Under Wine/Proton (echoxr-linux.sh), the prefix's registered runtime is Proton's
+    // wineopenxr, which passes every call to the Linux runtime named by the host's
+    // XR_RUNTIME_JSON. Pinning a Windows manifest here would break that, so leave it.
+    const char* (CDECL* wineVersion)() = nullptr;
+    if (HMODULE ntdll = GetModuleHandleW(L"ntdll.dll"))
+        wineVersion = (const char* (CDECL*)())GetProcAddress(ntdll, "wine_get_version");
+    if (wineVersion) {
+        Log(L"running under Wine %hs -- using the prefix's OpenXR runtime (wineopenxr)", wineVersion());
+        runtimeMode = L"active";
+    }
     if (runtimeMode == L"steamvr") {
         // Pin THIS launch to SteamVR. Other apps (e.g. Virtual Desktop's streamer) keep
         // re-registering themselves as the system runtime; the loader's XR_RUNTIME_JSON

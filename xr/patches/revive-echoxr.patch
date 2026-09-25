@@ -1,0 +1,104 @@
+diff --git a/ReviveXR/Common.h b/ReviveXR/Common.h
+index 6baac79..7deca66 100644
+--- a/ReviveXR/Common.h
++++ b/ReviveXR/Common.h
+@@ -36,11 +36,15 @@ extern XrResult g_LastResult;
+         )
+ #endif
+ 
++// EchoXR: every failed OpenXR call is written to EchoXR/runtime.log (see src/xr_main.cpp)
++void EchoXR_LogFail(const char* call, int result, const char* file, int line);
++void EchoXR_Log(const char* fmt, ...);
++
+ #define CHK_XR(x) \
+ 	{ \
+ 		g_LastResult = (x); \
+ 		assertmsg(XR_SUCCEEDED(g_LastResult), ResultToString(g_LastResult)); \
+-		if (XR_FAILED(g_LastResult)) return ResultToOvrResult(g_LastResult); \
++		if (XR_FAILED(g_LastResult)) { EchoXR_LogFail(#x, (int)g_LastResult, __FILE__, __LINE__); return ResultToOvrResult(g_LastResult); } \
+ 	}
+ 
+ #define CHK_OVR(x) \
+diff --git a/ReviveXR/Runtime.cpp b/ReviveXR/Runtime.cpp
+index 9ac774a..067aa9a 100644
+--- a/ReviveXR/Runtime.cpp
++++ b/ReviveXR/Runtime.cpp
+@@ -34,7 +34,11 @@ Runtime::HackInfo Runtime::s_known_hacks[] = {
+ 	{ nullptr, "SteamVR/OpenXR", HACK_BROKEN_LINE_LOOP, 0, 0x100000000, true },
+ 	{ nullptr, "SteamVR/OpenXR", HACK_MIN_HAPTIC_DURATION, 0, 0, true },
+ 	{ nullptr, "Windows Mixed Reality Runtime", HACK_WAIT_FOR_SESSION_READY, 0, 0, true },
++	// EchoXR: SteamVR fails xrLocateViews with XR_ERROR_VALIDATION_FAILURE until the
++	// temporary FOV session is running, so it needs the same wait-for-READY as WMR.
++	{ nullptr, "SteamVR/OpenXR", HACK_WAIT_FOR_SESSION_READY, 0, 0, true },
+ 	{ "echovr.exe", nullptr, HACK_FORCE_FOV_FALLBACK, 0, 0, true },
++	{ "echovr_openxr.exe", nullptr, HACK_FORCE_FOV_FALLBACK, 0, 0, true },   // EchoXR's launch copy
+ 	{ "loneecho.exe", nullptr, HACK_FORCE_FOV_FALLBACK, 0, 0, true },
+ };
+ 
+@@ -81,10 +85,20 @@ ovrResult Runtime::CreateInstance(XrInstance* out_Instance, const ovrInitParams*
+ 	ColorSpace = Supports(XR_FB_COLOR_SPACE_EXTENSION_NAME);
+ 
+ 	XrInstanceCreateInfo createInfo = XR_TYPE(INSTANCE_CREATE_INFO);
+-	createInfo.applicationInfo = { "Revive", REV_VERSION_INT, "Revive", REV_VERSION_INT, XR_CURRENT_API_VERSION };
++	// EchoXR: request OpenXR 1.0. Built against the 1.1 SDK, XR_CURRENT_API_VERSION asks for 1.1,
++	// which 1.0 runtimes reject with XR_ERROR_API_VERSION_UNSUPPORTED (-> ovrError_ServiceVersion, -3004).
++	createInfo.applicationInfo = { "Revive", REV_VERSION_INT, "Revive", REV_VERSION_INT, XR_API_VERSION_1_0 };
+ 	createInfo.enabledExtensionCount = (uint32_t)m_extensions.size();
+ 	createInfo.enabledExtensionNames = m_extensions.data();
+ 	CHK_XR(xrCreateInstance(&createInfo, out_Instance));
++	{
++		XrInstanceProperties ip = XR_TYPE(INSTANCE_PROPERTIES);
++		if (XR_SUCCEEDED(xrGetInstanceProperties(*out_Instance, &ip)))
++			EchoXR_Log("OpenXR runtime: %s %u.%u.%u", ip.runtimeName, (unsigned)XR_VERSION_MAJOR(ip.runtimeVersion),
++			           (unsigned)XR_VERSION_MINOR(ip.runtimeVersion), (unsigned)XR_VERSION_PATCH(ip.runtimeVersion));
++		for (const char* e : m_extensions) EchoXR_Log("  enabled extension: %s", e);
++		EchoXR_Log("Oculus SDK minor version requested by the game: %d", MinorVersion);
++	}
+ 
+ 	char filepath[MAX_PATH];
+ 	GetModuleFileNameA(NULL, filepath, MAX_PATH);
+diff --git a/ReviveXR/Session.cpp b/ReviveXR/Session.cpp
+index 33ff2dc..b355e19 100644
+--- a/ReviveXR/Session.cpp
++++ b/ReviveXR/Session.cpp
+@@ -29,12 +29,17 @@ ovrResult ovrHmdStruct::InitSession(XrInstance instance)
+ 	SystemColorSpace = XR_TYPE(SYSTEM_COLOR_SPACE_PROPERTIES_FB);
+ 
+ 	// Initialize view structures
++	// EchoXR: only chain the EPIC fov struct when that extension is enabled. SteamVR
++	// validates next-chains strictly and fails xrEnumerateViewConfigurationViews with
++	// XR_ERROR_VALIDATION_FAILURE for a struct from a disabled extension; the fallback
++	// below already derives the FOV without it.
++	const bool epicFov = Runtime::Get().Supports(XR_EPIC_VIEW_CONFIGURATION_FOV_EXTENSION_NAME);
+ 	for (int i = 0; i < ovrEye_Count; i++)
+ 	{
+ 		ViewConfigs[i] = XR_TYPE(VIEW_CONFIGURATION_VIEW);
+ 		ViewFov[i] = XR_TYPE(VIEW_CONFIGURATION_VIEW_FOV_EPIC);
+ 		ViewPoses[i] = XR_TYPE(VIEW);
+-		ViewConfigs[i].next = &ViewFov[i];
++		ViewConfigs[i].next = epicFov ? &ViewFov[i] : nullptr;
+ 	}
+ 
+ 	XrSystemGetInfo systemInfo = XR_TYPE(SYSTEM_GET_INFO);
+@@ -98,6 +103,9 @@ ovrResult ovrHmdStruct::InitSession(XrInstance instance)
+ 			XrEventDataBuffer event;
+ 			const XrEventDataSessionStateChanged& stateChanged =
+ 				reinterpret_cast<XrEventDataSessionStateChanged&>(event);
++			// EchoXR: bounded wait -- an idle/asleep headset never reports READY, and an
++			// unbounded loop would hang the game's startup forever.
++			const auto waitStart = std::chrono::steady_clock::now();
+ 			do
+ 			{
+ 				event = XR_TYPE(EVENT_DATA_BUFFER);
+@@ -106,6 +114,11 @@ ovrResult ovrHmdStruct::InitSession(XrInstance instance)
+ 					break;
+ 				if (result == XR_EVENT_UNAVAILABLE)
+ 					std::this_thread::sleep_for(10ms);
++				if (std::chrono::steady_clock::now() - waitStart > std::chrono::seconds(5))
++				{
++					EchoXR_Log("temporary FOV session never became READY within 5 s (headset asleep?)");
++					break;
++				}
+ 			} while (event.type != XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED ||
+ 				stateChanged.state != XR_SESSION_STATE_READY);
+ 			assert(stateChanged.session == Session);

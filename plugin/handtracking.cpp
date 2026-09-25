@@ -146,6 +146,8 @@ struct Settings {
     int   netSendHz      = 30;
     char  myName[64]     = "";    // override the auto-detected local display name
     int   mirrorToRemotes = 0;    // TEST: pose every other player's avatar with YOUR local tracking
+    char  platform[16]   = "";    // "" = leave the user ID alone; STM, PSN, XBX, OVR-ORG, OVR, BOT, DMO (PlatformPatch)
+    unsigned long long platformAccount = 0;   // 0 = keep the account number; else e.g. your SteamID64
     float openStraighten = 12.0f; // degrees a fully OPEN finger straightens past the rig's relaxed bind pose
     // One Euro filter on the curls: heavy smoothing when a finger is still, light
     // when it moves fast -- kills sensor jitter without adding lag to real motion
@@ -221,6 +223,8 @@ static int ApplyConfigText(const std::string& text) {
             else if (k == "NetSendHz")       g_S.netSendHz = std::stoi(v);
             else if (k == "MyName")          strncpy_s(g_S.myName, v.c_str(), _TRUNCATE);
             else if (k == "MirrorToRemotes") g_S.mirrorToRemotes = std::stoi(v);
+            else if (k == "Platform")        strncpy_s(g_S.platform, v.c_str(), _TRUNCATE);
+            else if (k == "PlatformAccount") g_S.platformAccount = v.empty() ? 0 : std::stoull(v);
             else if (k == "DebugRoster") {   // "me|other1,other2" -- test the relay without a match
                 size_t bar = v.find('|');
                 if (bar != std::string::npos) {
@@ -1395,6 +1399,176 @@ static void InstallThread() {
     }
 }
 
+// =============================================================================
+// Platform patch -- which platform your user ID says you're on.
+//
+// An Echo user ID is 16 bytes: a platform code in the low 4 bits of the first
+// quadword, then the account number. Codes (echovr.exe SNSUserID / WriteUserInfo):
+// 1 STM, 2 PSN, 3 XBX, 4 OVR-ORG, 5 OVR, 6 BOT, 7 DMO. pnsovr.dll creates the local
+// user in its CNSOVRUsers factory (pnsovr+0x83a70) and stamps it OVR-ORG:
+//
+//   pnsovr+0x83b42  49 83 a6 90 00 00 00 f4   and qword [r14+0x90], ~0xB
+//   pnsovr+0x83b4a  49 83 8e 90 00 00 00 04   or  qword [r14+0x90], 4
+//
+// CNSUser::LogIn (pnsovr+0xabc00) sends that ID to the server, so "Platform = STM"
+// makes the login (and everyone's view of you) STM-<id>. The two immediates are
+// rewritten in memory as soon as pnsovr.dll is mapped, before the game initialises
+// it; the file on disk is never touched. Read once at startup (a restart applies it).
+// =============================================================================
+static const uintptr_t RVA_OVR_PLATFORM = 0x83b42;
+static const uint8_t   SIG_OVR_PLATFORM[16] = { 0x49, 0x83, 0xa6, 0x90, 0x00, 0x00, 0x00, 0xf4,
+                                                0x49, 0x83, 0x8e, 0x90, 0x00, 0x00, 0x00, 0x04 };
+static int  g_PlatformCode = 0;          // 0 = off
+static volatile LONG g_PlatformDone = 0;
+
+static int PlatformCode(const char* s) {
+    static const char* names[] = { nullptr, "STM", "PSN", "XBX", "OVR-ORG", "OVR", "BOT", "DMO" };
+    for (int i = 1; i < 8; ++i) if (!_stricmp(s, names[i])) return i;
+    return 0;
+}
+
+static void PatchPlatformCode(HMODULE mod) {
+    uintptr_t base = (uintptr_t)mod, at = base + RVA_OVR_PLATFORM;
+    if (at + sizeof(SIG_OVR_PLATFORM) > base + ImageSize(base)) { Log("platform: pnsovr.dll is too small -- not patching"); return; }
+    // accept it already patched to any code (byte 15) with either mask (byte 7)
+    uint8_t cur[16];
+    __try { memcpy(cur, (const void*)at, 16); }
+    __except (EXCEPTION_EXECUTE_HANDLER) { Log("platform: can't read pnsovr.dll -- not patching"); return; }
+    bool ok = !memcmp(cur, SIG_OVR_PLATFORM, 7) && (cur[7] == 0xf4 || cur[7] == 0xf0) &&
+              !memcmp(cur + 8, SIG_OVR_PLATFORM + 8, 7) && cur[15] >= 1 && cur[15] <= 7;
+    if (!ok) { Log("platform: signature mismatch in pnsovr.dll (+0x%llx) -- not the expected build, not patching",
+                   (unsigned long long)RVA_OVR_PLATFORM); return; }
+    DWORD old;
+    if (!VirtualProtect((void*)at, 16, PAGE_EXECUTE_READWRITE, &old)) { Log("platform: VirtualProtect failed (%lu)", GetLastError()); return; }
+    ((uint8_t*)at)[7]  = 0xf0;                       // clear all four platform bits
+    ((uint8_t*)at)[15] = (uint8_t)g_PlatformCode;    // then set ours
+    VirtualProtect((void*)at, 16, old, &old);
+    FlushInstructionCache(GetCurrentProcess(), (void*)at, 16);
+    Log("platform: pnsovr.dll will log you in as %s (code %d, was %d)", g_S.platform, g_PlatformCode, cur[15]);
+}
+
+// The account number: pnsovr.dll takes it from ovr_OrgScopedID_GetID (imported from
+// LibOVRPlatform64_1.dll) in OnOrgScopedIDResponse (pnsovr+0x86c90) and keeps it for
+// the login, its logs and its JSON. "PlatformAccount = <number>" replaces it there, so
+// every one of those shows the same ID. The server treats a login ID as its device ID
+// and wants 10-128 bytes, so STM-<SteamID64> works where STM-<short number> doesn't.
+typedef uint64_t (*pf_OrgScopedID_GetID)(void*);
+static pf_OrgScopedID_GetID Real_OrgScopedID_GetID = nullptr;
+static uint64_t Hooked_OrgScopedID_GetID(void* handle) {
+    uint64_t real = Real_OrgScopedID_GetID(handle);
+    static volatile LONG logged = 0;
+    if (!InterlockedExchange(&logged, 1))
+        Log("platform: account number %llu -> %llu", (unsigned long long)real, g_S.platformAccount);
+    return g_S.platformAccount;
+}
+
+static void HookAccountNumber() {
+    HMODULE lib = GetModuleHandleW(L"LibOVRPlatform64_1.dll");   // pnsovr.dll's import, mapped with it
+    Real_OrgScopedID_GetID = lib ? (pf_OrgScopedID_GetID)GetProcAddress(lib, "ovr_OrgScopedID_GetID") : nullptr;
+    if (!Real_OrgScopedID_GetID) { Log("platform: ovr_OrgScopedID_GetID not found -- account number unchanged"); return; }
+    DetourTransactionBegin();
+    DetourUpdateThread(GetCurrentThread());
+    DetourAttach(&(PVOID&)Real_OrgScopedID_GetID, Hooked_OrgScopedID_GetID);
+    LONG err = DetourTransactionCommit();
+    if (err == NO_ERROR) Log("platform: account number will be %llu", g_S.platformAccount);
+    else Log("platform: ovr_OrgScopedID_GetID hook failed: %ld", err);
+}
+
+// The community pnsovr.dll doesn't use Oculus's answer at all: OnOrgScopedIDResponse
+// jumps (pnsovr+0x86cae) into a code cave at pnsovr+0x1f9500 that hard-codes the
+// account number 14387 into the org-scoped ID (pnsovr+0x346830), then formats it
+// and jumps back. Its store is a sign-extended imm32, too small for a SteamID64, so
+// the 42-byte cave is rewritten (44 bytes, into the zero padding after it) to load a
+// full 64-bit number instead. Everything else it does is kept as it was.
+static bool SafeRead(void* dst, uintptr_t src, size_t n) {
+    __try { memcpy(dst, (const void*)src, n); return true; }
+    __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+
+static const uintptr_t RVA_ID_CAVE = 0x1f9500;
+static const uint8_t   SIG_ID_CAVE[42] = {
+    0x48, 0xc7, 0x05, 0x25, 0xd3, 0x14, 0x00, 0x33, 0x38, 0x00, 0x00,   // mov qword [org_id], 14387
+    0x4c, 0x8b, 0x05, 0x1e, 0xd3, 0x14, 0x00,                           // mov r8, [org_id]
+    0x48, 0x8d, 0x15, 0xfb, 0x1f, 0x00, 0x00,                           // lea rdx, "%llu"
+    0x48, 0x8d, 0x0d, 0xd0, 0xd2, 0x14, 0x00,                           // lea rcx, id_string
+    0xe8, 0x0b, 0x86, 0xe9, 0xff,                                       // call format
+    0xe9, 0xe8, 0xd8, 0xe8, 0xff };                                     // jmp back
+static bool RewriteIdCave(HMODULE mod) {
+    uintptr_t base = (uintptr_t)mod, at = base + RVA_ID_CAVE;
+    const size_t newLen = 44;
+    if (at + newLen > base + ImageSize(base)) return false;
+    uint8_t cur[newLen];
+    if (!SafeRead(cur, at, newLen)) return false;
+    if (memcmp(cur, SIG_ID_CAVE, sizeof(SIG_ID_CAVE)) || cur[42] || cur[43]) return false;   // not this pnsovr.dll
+    auto rel = [&](size_t endOff, uintptr_t targetRva) { return (int32_t)(int64_t)((base + targetRva) - (at + endOff)); };
+    uint8_t c[newLen];
+    size_t n = 0;
+    auto put = [&](std::initializer_list<uint8_t> b) { for (uint8_t x : b) c[n++] = x; };
+    auto put32 = [&](int32_t v) { memcpy(c + n, &v, 4); n += 4; };
+    auto put64 = [&](uint64_t v) { memcpy(c + n, &v, 8); n += 8; };
+    put({ 0x48, 0xb8 }); put64(g_S.platformAccount);           // mov rax, account
+    put({ 0x48, 0x89, 0x05 }); put32(rel(n + 4, 0x346830));    // mov [org_id], rax
+    put({ 0x49, 0x89, 0xc0 });                                 // mov r8, rax
+    put({ 0x48, 0x8d, 0x15 }); put32(rel(n + 4, 0x1fb514));    // lea rdx, "%llu"
+    put({ 0x48, 0x8d, 0x0d }); put32(rel(n + 4, 0x3467f0));    // lea rcx, id_string
+    put({ 0xe8 }); put32(rel(n + 4, 0x91b30));                 // call format
+    put({ 0xe9 }); put32(rel(n + 4, 0x86e12));                 // jmp back
+    DWORD old;
+    if (!VirtualProtect((void*)at, newLen, PAGE_EXECUTE_READWRITE, &old)) return false;
+    memcpy((void*)at, c, newLen);
+    VirtualProtect((void*)at, newLen, old, &old);
+    FlushInstructionCache(GetCurrentProcess(), (void*)at, newLen);
+    Log("platform: this pnsovr.dll hard-codes account 14387 -- replaced with %llu", g_S.platformAccount);
+    return true;
+}
+
+// Once, as soon as pnsovr.dll is mapped (before the game initialises it).
+static void OnPnsovrMapped(HMODULE ovr) {
+    if (InterlockedExchange(&g_PlatformDone, 1)) return;
+    if (g_PlatformCode) PatchPlatformCode(ovr);
+    if (g_S.platformAccount && !RewriteIdCave(ovr)) HookAccountNumber();   // stock pnsovr: Oculus's own answer
+}
+
+typedef HMODULE (WINAPI* pf_LoadLibraryExW)(LPCWSTR, HANDLE, DWORD);
+static pf_LoadLibraryExW Real_LoadLibraryExW = nullptr;
+static HMODULE WINAPI Hooked_LoadLibraryExW(LPCWSTR name, HANDLE file, DWORD flags) {
+    HMODULE h = Real_LoadLibraryExW(name, file, flags);
+    if (!g_PlatformDone) {
+        HMODULE ovr = GetModuleHandleW(L"pnsovr.dll");   // mapped now, not initialised yet
+        if (ovr) OnPnsovrMapped(ovr);
+    }
+    return h;
+}
+
+// Runs in DllMain, so the hook is in place before the game loads pnsovr.dll.
+// (Every LoadLibrary* variant ends in KernelBase!LoadLibraryExW.)
+static void PlatformPatch_Init() {
+    if (g_S.platform[0]) {
+        g_PlatformCode = PlatformCode(g_S.platform);
+        if (!g_PlatformCode) Log("platform: unknown Platform '%s' (use STM, PSN, XBX, OVR-ORG, OVR, BOT or DMO)", g_S.platform);
+    }
+    if (!g_PlatformCode && !g_S.platformAccount) return;
+    if (g_PlatformCode == 1 && g_S.platformAccount && (g_S.platformAccount < 76561197960265728ull || g_S.platformAccount > 76561202255233023ull))
+        Log("platform: PlatformAccount %llu doesn't look like a SteamID64 (7656119...)", g_S.platformAccount);
+    if (g_PlatformCode == 1 && !g_S.platformAccount)
+        Log("platform: no PlatformAccount set -- a short account number makes a login ID the server rejects (under 10 bytes)");
+    if (HMODULE ovr = GetModuleHandleW(L"pnsovr.dll")) {
+        Log("platform: pnsovr.dll was loaded before this plugin -- patching now, it may be too late for this session");
+        OnPnsovrMapped(ovr);
+        return;
+    }
+    HMODULE kb = GetModuleHandleW(L"kernelbase.dll");
+    Real_LoadLibraryExW = kb ? (pf_LoadLibraryExW)GetProcAddress(kb, "LoadLibraryExW") : nullptr;
+    if (!Real_LoadLibraryExW) { Log("platform: KernelBase!LoadLibraryExW not found"); return; }
+    DetourTransactionBegin();
+    DetourUpdateThread(GetCurrentThread());
+    DetourAttach(&(PVOID&)Real_LoadLibraryExW, Hooked_LoadLibraryExW);
+    LONG err = DetourTransactionCommit();
+    if (err == NO_ERROR) Log("platform: waiting for pnsovr.dll (platform %s, account %llu)",
+                             g_PlatformCode ? g_S.platform : "unchanged", g_S.platformAccount);
+    else Log("platform: LoadLibraryExW hook failed: %ld", err);
+}
+
 static void ResolveDir(HMODULE self) {
     char path[MAX_PATH] = {};
     GetModuleFileNameA(self, path, MAX_PATH);
@@ -1408,6 +1582,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID) {
         DisableThreadLibraryCalls(hModule);
         ResolveDir(hModule);
         LoadConfigFile(false);
+        PlatformPatch_Init();
         std::thread(InstallThread).detach();
         std::thread(UdpThread).detach();
         std::thread(ConfigWatchThread).detach();

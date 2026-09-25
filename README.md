@@ -122,6 +122,56 @@ The plugin is loaded by `dbgcore.dll`, a plugin loader that loads every DLL in
 | any other `dbgcore.dll`, with a `plugins\` folder | kept, since it's already a plugin loader; only the plugin is added |
 | any other `dbgcore.dll`, no `plugins\` folder | left alone. The zip skips hand tracking. The installer replaces it only when you switch Plugin loader on, and saves the old file as `dbgcore.dll.bak`. |
 
+### Linux (untested)
+
+The release zip also runs on Linux through Proton. It uses the Proton that Steam
+already has, and Steam's Linux runtime container when that's installed. There's
+no other app to install.
+
+1. Copy the whole `ready-at-dawn-echo-arena` folder from a Windows PC.
+2. Unzip the release into its `bin/win10` folder.
+3. Copy `LibOVRPlatform64_1.dll` and `LibOVRPlatformImpl64_1.dll` from the Windows
+   PC's `C:\Program Files\Oculus\Support\oculus-runtime\` into `bin/win10`.
+   `pnsovr.dll` needs them to log in, and a Linux prefix has no Oculus folder.
+4. Set an active OpenXR runtime (SteamVR, Monado or WiVRn), then run
+   `bin/win10/EchoXR/echoxr-linux.sh`.
+
+The VR path stays inside the game process:
+
+```
+echovr_openxr.exe -> EchoXR\LibOVRRT64_1.dll -> EchoXR\openxr_loader.dll
+  -> Proton's wineopenxr.dll (the prefix's registered OpenXR runtime)
+  -> wineopenxr.so -> the Linux runtime in XR_RUNTIME_JSON
+```
+
+Under Wine, `EchoXR.exe` notices `wine_get_version` and leaves the runtime
+choice to Proton instead of pinning SteamVR's Windows manifest. The script:
+
+- **Picks Proton:** the newest GE-Proton, then Proton Experimental, then the
+  newest `Proton N`. It refuses one without `wineopenxr`.
+- **Picks the runtime:** `XR_RUNTIME_JSON`, or your active one in
+  `~/.config/openxr/1/active_runtime.json`.
+- **Uses its own prefix:** `~/.local/share/echoxr/prefix`.
+- **Sets Proton up:** the `STEAM_COMPAT_*` variables, plus
+  `PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES=1` so the container can see the
+  runtime.
+- **Keeps the plugin loader:** `WINEDLLOVERRIDES=dbgcore=n,b`, because Wine
+  would otherwise load its own `dbgcore.dll` instead of the plugin loader.
+
+`ECHOXR_PROTON`, `ECHOXR_PREFIX`, `ECHOXR_NO_CONTAINER=1` and `ECHOXR_DEBUG=1`
+override the choices. `ECHOXR_DEBUG=1` also writes Proton and OpenXR loader logs.
+
+The approach follows [RiftLift](https://github.com/Villagers654/RiftLift), which
+runs Rift games the same way. No RiftLift code is used: it's GPL-3.0.
+
+Nothing here has been run on Linux yet. The open questions are:
+
+- whether Echo's renderer works with Proton's `wineopenxr` (the Windows logs show
+  a D3D12 device);
+- whether `pnsovr.dll` and the Platform SDK DLLs log in under Wine;
+- whether the finger bridge (`EchoXRHands.exe`, OpenVR) works. That needs SteamVR,
+  because Monado and WiVRn don't provide OpenVR.
+
 ## Using it
 
 1. Start SteamVR.
@@ -142,6 +192,11 @@ EchoXRHands.exe --ping                   check the plugin is loaded
 
 Settings are in `plugins\EchoXRHands.txt`. The plugin re-reads it within half a
 second, so you can edit it while you play.
+
+`Platform` and `PlatformAccount` are experimental, and empty (off) by default.
+They change the platform prefix and account number of your login ID in memory at
+startup (`pnsovr.dll`), and nothing on disk changes. Leave them off on EchoVRCE:
+its server numbers platforms differently from the game, and it rejects the result.
 
 ### Why a separate bridge
 
@@ -225,11 +280,22 @@ Everything builds with MSVC (Visual Studio 2026 toolset).
 | command | builds |
 | --- | --- |
 | `build.bat` | `out\EchoXRHands.dll` (plugin), `out\EchoXRHands.exe` (bridge), settings and manifests |
-| `xr\build_xr.bat` | `xr\out\LibOVRRT64_1.dll`, `openxr_loader.dll` and `EchoXR.exe`; see [xr/README.md](xr/README.md) |
+| `xr\build_xr.bat` | `xr\out\LibOVRRT64_1.dll`, `openxr_loader.dll` and `EchoXR.exe`. It needs three upstream checkouts plus a patch; [xr/README.md](xr/README.md) has the exact commits and commands |
+| `xr\build_launcher.bat` | just `xr\out\EchoXR.exe` (quick) |
 | `installer\build_installer.bat [--all]` | all of the above as needed, then `out\EchoXRSetup.exe` |
 | `python tools\make_release.py [--no-build]` | `out\release\EchoXR-v<VERSION>.zip` and `EchoXRSetup-v<VERSION>.exe` |
 | `python tools\gen_logo.py` | the logo in `installer\logo\` (SVG, PNG, ICO) |
 
 The plugin loader is staged from the game install into
 `installer\stage\dbgcore.dll` when the installer is built. The version number is
-in `VERSION`.
+in `VERSION`. `linux\echoxr-linux.sh` needs no build; the release zip ships it as
+`EchoXR/echoxr-linux.sh`.
+
+| folder | what |
+| --- | --- |
+| `plugin/` | EchoXR Hands plugin (hooks, posing, relay, Platform setting) |
+| `bridge/` | finger bridge (SteamVR input → plugin, UDP `127.0.0.1:8768`) |
+| `xr/` | EchoXR runtime glue and launcher (`src/`), Revive patch (`patches/`) |
+| `installer/` | `EchoXRSetup.exe` source, logo |
+| `linux/` | Linux launcher script |
+| `tools/` | release packaging, logo generator, rig table generator, `fake_index.py` |

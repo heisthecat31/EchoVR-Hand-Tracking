@@ -38,6 +38,7 @@ FILES = [
     ("out/EchoXRHands.dll",                        "EchoXR/Hands/install/EchoXRHands.dll"),
     ("out/EchoXRHands.txt",                        "EchoXR/Hands/install/EchoXRHands.txt"),
     ("installer/stage/dbgcore.dll",                "EchoXR/Hands/install/dbgcore.dll"),
+    ("linux/echoxr-linux.sh",                      "EchoXR/echoxr-linux.sh"),
 ]
 
 README = """EchoXR {version}
@@ -73,6 +74,17 @@ running it can see them, and shows theirs (Network = 0 turns this off; it sends
 your display name and your match's player names so the relay can pair you up).
 Sending works; seeing another player's fingers hasn't been confirmed in a match yet.
 
+Linux
+-----
+EchoXR runs on Linux through Proton, on SteamVR, Monado or WiVRn. Copy Echo VR
+(the whole ready-at-dawn-echo-arena folder) from a Windows PC, unzip this release
+into its bin/win10 folder as above, then run:
+
+   bin/win10/EchoXR/echoxr-linux.sh
+
+It needs Steam with Proton Experimental, Proton 8+ or GE-Proton, and an active
+OpenXR runtime. Nothing else is installed. The finger bridge needs SteamVR.
+
 Logs
 ----
 EchoXR\\launcher.log        what EchoXR.exe set up and launched
@@ -97,7 +109,12 @@ def main():
         for d in ("EchoXR/", "EchoXR/Hands/", "EchoXR/Hands/install/"):
             z.writestr(zipfile.ZipInfo(d), "")
         for src, dst in FILES:
-            z.write(os.path.join(ROOT, src), dst)
+            info = zipfile.ZipInfo.from_file(os.path.join(ROOT, src), dst)
+            info.compress_type = zipfile.ZIP_DEFLATED
+            if dst.endswith(".sh"):
+                info.external_attr = 0o100755 << 16      # executable once unzipped on Linux
+            with open(os.path.join(ROOT, src), "rb") as f:
+                z.writestr(info, f.read())
         z.writestr("EchoXR/README.txt", README.format(version="v" + VERSION).replace("\n", "\r\n"))
     setup = os.path.join(out, "EchoXRSetup-v%s.exe" % VERSION)
     shutil.copyfile(os.path.join(ROOT, "out", "EchoXRSetup.exe"), setup)
