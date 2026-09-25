@@ -1,0 +1,21 @@
+{
+  "action_manifest_version": 0,
+  "default_bindings": [
+    { "controller_type": "knuckles", "binding_url": "htv_bindings_knuckles.json" }
+  ],
+  "actions": [
+    { "name": "/actions/htv/in/SkeletonLeft",  "type": "skeleton", "skeleton": "/skeleton/hand/left" },
+    { "name": "/actions/htv/in/SkeletonRight", "type": "skeleton", "skeleton": "/skeleton/hand/right" }
+  ],
+  "action_sets": [
+    { "name": "/actions/htv", "usage": "leftright" }
+  ],
+  "localization": [
+    {
+      "language_tag": "en_US",
+      "/actions/htv": "HandTrackingValve",
+      "/actions/htv/in/SkeletonLeft": "Left hand skeleton",
+      "/actions/htv/in/SkeletonRight": "Right hand skeleton"
+    }
+  ]
+}
