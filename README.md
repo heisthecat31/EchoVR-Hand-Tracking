@@ -33,9 +33,6 @@ From the logs of real sessions on the current Echo build:
 
 ### Not confirmed yet
 
-- **Seeing another player's fingers.** Every session so far had no other player
-  running the plugin (`live peers 0`), so the receiving side has never been seen in
-  a match.
 - **Pose tuning.** The bend axis and direction are worked out from the rig
   automatically. If a finger bends the wrong way, the settings below fix it; see
   [First-run tuning](#first-run-tuning).
