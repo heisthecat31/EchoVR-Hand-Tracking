@@ -171,7 +171,7 @@ struct Settings {
     float spread[5]      = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
     float twist[5]       = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
     int   splayAxis      = 1;
-    float splayDeg       = 0.0f;  // 0 = splay off
+    float splayDeg       = 20.0f; // degrees per unit of splay away from the open-hand reference; 0 = off
     // "auto", or five names in game-slot order, e.g. "index,middle,ring,pinky,thumb"
     char  fingerOrder[96] = "auto";
 };
@@ -396,6 +396,10 @@ struct HandCal {
     LONGLONG fQpc = 0;
     float    smooth[5];          // smoothed curl per tracked finger
     float    smoothSplay[4];
+    // splay reference: the between-finger gaps of the relaxed open hand. Splay is
+    // applied relative to it, so a hand at rest keeps the rig's own spread.
+    bool     haveSplayBase = false;
+    float    splayBase[4];
     bool     loggedFail = false;
 };
 static HandCal g_Cal[MAX_INST][2];
@@ -833,6 +837,16 @@ static void PoseFingersRig(void* pose, uint16_t skel, const RigHand* rig, HandCa
     float curl[5], splay[4];
     FilterInput(cal, rawCurl, rawSplay, curl, splay);
 
+    // the first time this hand is open (and again after a calibrate), its gaps
+    // become the zero point; with no reference yet, no splay is applied
+    bool open = true;
+    for (int f = 0; f < 5; ++f) if (rawCurl[f] > g_S.openThreshold) open = false;
+    if (!cal.haveSplayBase && open) {
+        memcpy(cal.splayBase, splay, sizeof(cal.splayBase));
+        cal.haveSplayBase = true;
+    }
+    for (int f = 0; f < 4; ++f) splay[f] = cal.haveSplayBase ? splay[f] - cal.splayBase[f] : 0.0f;
+
     for (int finger = 0; finger < 5; ++finger) {
         const RigFinger& rf = rig->f[finger];
         bool thumb = (finger == HTV_THUMB);
@@ -1167,7 +1181,7 @@ static void ApplyTracking(uint8_t* cs) {
             HandCal& cal = g_Cal[i][h];
             if (cal.inst != inst) {
                 cal.have = false; cal.loggedFail = false;
-                cal.rigChecked = false; cal.rig = nullptr; cal.fInit = false;
+                cal.rigChecked = false; cal.rig = nullptr; cal.fInit = false; cal.haveSplayBase = false;
                 cal.inst = inst;
             }
 
@@ -1195,6 +1209,7 @@ static void ApplyTracking(uint8_t* cs) {
                             i, h, left ? "left" : "right");
                 }
                 if (cal.rig) {
+                    if (recal) { cal.haveSplayBase = false; Log("calibrate: splay reference reset for hand %d (%s)", h, left ? "left" : "right"); }
                     memcpy(cal.slotFinger, cal.rigSlot, sizeof(cal.slotFinger));   // Measure indexes by slotFinger
                     MeasureSafe(inst, h, &cal, fr.curl[side], &g_Stats[side]);
                     PoseHandRigSafe(inst, h, &cal, fr.curl[side], fr.splay[side], left);

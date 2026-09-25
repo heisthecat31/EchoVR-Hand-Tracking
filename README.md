@@ -16,9 +16,12 @@ both migrate old installs.
 | | |
 | --- | --- |
 | **Echo on SteamVR** | Echo's Oculus calls (LibOVR) are answered by ReviveXR over OpenXR, pinned to SteamVR for each launch. Details: [xr/README.md](xr/README.md). |
-| **Your own fingers** | Every finger bends on its own, from the Index controllers' finger sensing. Echo normally moves middle, ring and pinky together from the grip button. |
+| **Your own fingers** | Every finger bends on its own, and spreads apart, from the Index controllers' finger sensing. Echo normally moves middle, ring and pinky together from the grip button. |
+| **Other controllers and hand tracking** | On Touch, Vive, WMR and HP controllers, and on controller-free hand tracking that SteamVR presents as one of them, finger curls come from the hand skeleton instead. |
 | **Other players' fingers** | The plugin sends your finger curls through a relay (`Network = 1`), and poses players who send theirs. |
 | **Auto-start** | `EchoXR.exe` can run the finger bridge alongside Echo and close it afterwards. |
+| **Calibrate hotkey** | Ctrl+Alt+C recalibrates the open-hand pose at any time. |
+| **Updates** | `EchoXR.exe` checks GitHub for a new release once a day, and offers to install it. |
 | **Install and update** | `EchoXRSetup.exe` is an installer with a GUI. The release zip needs nothing more than unzipping; `EchoXR.exe` does the setup on first launch. |
 
 ### What has been seen working
@@ -29,13 +32,22 @@ From the logs of real sessions on the current Echo build:
   zero failed OpenXR calls.
 - **EchoXR Hands:** the plugin hooks the game and finds the local player in a
   match. It receives the bridge's frames at about 120 Hz and calibrates.
-- **Relay:** the plugin connects to the relay and sends your fingers.
+- **Finger sharing:** the plugin connects to the relay, sends your fingers and
+  poses other players' tracked fingers on their avatars (tested with other
+  players running the plugin).
+- **Updates:** `EchoXR.exe` found the `v0.1.0` GitHub release, downloaded it and
+  installed it over an older build.
 
 ### Not confirmed yet
 
 - **Pose tuning.** The bend axis and direction are worked out from the rig
   automatically. If a finger bends the wrong way, the settings below fix it; see
   [First-run tuning](#first-run-tuning).
+- **Finger spread** (new in 0.2.0) hasn't been checked in-game yet. `SplayDeg`
+  sets how far it goes; 0 turns it off.
+- **Other controllers and hand tracking** (new in 0.2.0) haven't been tried yet.
+  If fingers don't move, run `EchoXRHands.exe --print` and look at which source
+  each hand uses.
 
 ### Limits
 
@@ -46,8 +58,10 @@ From the logs of real sessions on the current Echo build:
 - **One game build.** The patch for `echovr_openxr.exe` and the plugin's hooks
   are for the current `echovr.exe` (35,397,120 bytes, May 2023). Both check the
   bytes they change first, and refuse anything else instead of breaking the game.
-- **The finger bridge needs SteamVR and Valve Index controllers.** Without an Index
-  you can still see other players' fingers; `fake_index.py` sends test input.
+- **The finger bridge needs SteamVR.** Index controllers give the best result
+  (real finger sensing, including spread). Other controllers only move the
+  fingers their buttons can sense. Without any tracking you can still see other
+  players' fingers; `fake_index.py` sends test input.
 
 ## Install
 
@@ -179,7 +193,9 @@ Nothing here has been run on Linux yet. The open questions are:
    finger bridge opens minimised next to Echo. Without it, run
    `EchoXR\Hands\EchoXRHands.exe --print` yourself.
 3. In-game, hold both hands **fully open** once. That captures the reference pose:
-   the game's relaxed pose becomes "curl = 0".
+   the game's relaxed pose becomes "curl = 0", and your relaxed finger spread
+   becomes "no spread". To redo it at any time, hold your hands open and press
+   **Ctrl+Alt+C**.
 
 The bridge also takes commands:
 
@@ -191,7 +207,20 @@ EchoXRHands.exe --ping                   check the plugin is loaded
 ```
 
 Settings are in `plugins\EchoXRHands.txt`. The plugin re-reads it within half a
-second, so you can edit it while you play.
+second, so you can edit it while you play. The bridge reads it when it starts.
+
+| setting | what it does |
+| --- | --- |
+| `FingerSource = auto` | `device` = SteamVR's per-finger summary from the controller (Index finger sensing, with spread). `bones` = curls from the hand skeleton's joints, measured against SteamVR's open-hand pose (other controllers, controller-free hand tracking). `auto` = `device` on Index, `bones` on everything else. `--print` shows which each hand uses. |
+| `SplayDeg = 20` | how far fingers spread per unit of Index splay, relative to your relaxed open hand. 0 = off |
+| `CalibrateHotkey = 1` | Ctrl+Alt+C recalibrates; 0 frees the hotkey |
+
+`EchoXR\echoxr.ini` holds the launcher's settings: `AutoStartHands` (run the
+bridge with Echo) and `CheckForUpdates`. With `CheckForUpdates = 1` (the default),
+`EchoXR.exe` asks GitHub for the latest release at most once every 20 hours, with
+a 4-second timeout so a launch is never held up. If there's a newer
+`EchoXR-v*.zip`, it asks first, then downloads it, checks it, unpacks it over the
+install and restarts itself. `EchoXR.exe --check-update` checks straight away.
 
 `Platform` and `PlatformAccount` are experimental, and empty (off) by default.
 They change the platform prefix and account number of your login ID in memory at

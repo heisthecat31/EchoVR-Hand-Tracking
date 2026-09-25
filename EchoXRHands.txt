@@ -79,9 +79,11 @@ TwistMiddle = 0
 TwistRing = 0
 TwistPinky = 0
 
-# Finger spread from the Index's splay sensing. 0 = off.
+# Finger spread from the Index's splay sensing, relative to your relaxed open hand
+# (captured the first time your hand is open, and again when you calibrate).
+# Degrees per unit of spread; 0 = off.
 SplayAxis = y
-SplayDeg = 0
+SplayDeg = 20
 
 # auto = work out the game's finger slots from the knuckle positions.
 # Or list the five game slots explicitly, e.g. index,middle,ring,pinky,thumb
@@ -106,3 +108,11 @@ Platform =
 # The number after the prefix. Empty = keep it. For STM use your SteamID64
 # (17 digits, 7656119...): the server rejects login IDs under 10 characters.
 PlatformAccount =
+
+# --- Finger bridge (EchoXRHands.exe reads these when it starts) --------------
+# auto = Index finger sensing on Valve Index controllers, the hand skeleton on
+# everything else (other controllers, controller-free hand tracking).
+# device / bones force one.
+FingerSource = auto
+# 1 = Ctrl+Alt+C recalibrates (hold both hands fully open).
+CalibrateHotkey = 1

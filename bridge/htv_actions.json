@@ -1,14 +1,48 @@
 {
   "action_manifest_version": 0,
   "default_bindings": [
-    { "controller_type": "knuckles", "binding_url": "htv_bindings_knuckles.json" }
+    {
+      "controller_type": "knuckles",
+      "binding_url": "htv_bindings_knuckles.json"
+    },
+    {
+      "controller_type": "oculus_touch",
+      "binding_url": "htv_bindings_oculus_touch.json"
+    },
+    {
+      "controller_type": "vive_controller",
+      "binding_url": "htv_bindings_vive_controller.json"
+    },
+    {
+      "controller_type": "vive_cosmos_controller",
+      "binding_url": "htv_bindings_vive_cosmos_controller.json"
+    },
+    {
+      "controller_type": "holographic_controller",
+      "binding_url": "htv_bindings_holographic_controller.json"
+    },
+    {
+      "controller_type": "hpmotioncontroller",
+      "binding_url": "htv_bindings_hpmotioncontroller.json"
+    }
   ],
   "actions": [
-    { "name": "/actions/htv/in/SkeletonLeft",  "type": "skeleton", "skeleton": "/skeleton/hand/left" },
-    { "name": "/actions/htv/in/SkeletonRight", "type": "skeleton", "skeleton": "/skeleton/hand/right" }
+    {
+      "name": "/actions/htv/in/SkeletonLeft",
+      "type": "skeleton",
+      "skeleton": "/skeleton/hand/left"
+    },
+    {
+      "name": "/actions/htv/in/SkeletonRight",
+      "type": "skeleton",
+      "skeleton": "/skeleton/hand/right"
+    }
   ],
   "action_sets": [
-    { "name": "/actions/htv", "usage": "leftright" }
+    {
+      "name": "/actions/htv",
+      "usage": "leftright"
+    }
   ],
   "localization": [
     {

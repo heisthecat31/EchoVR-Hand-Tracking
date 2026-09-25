@@ -25,6 +25,7 @@
 #include <stdio.h>
 #include <string>
 #include "echoxr_common.h"
+#include "updater.h"
 
 static FILE* g_log = nullptr;
 static void Log(const wchar_t* fmt, ...) {
@@ -81,11 +82,11 @@ static std::wstring SteamVROpenXRJson() {
 }
 
 // "Key = 1" in a small INI-style file (whitespace and case around the key ignored).
-static bool ReadIniFlag(const std::wstring& path, const char* key) {
+static bool ReadIniFlag(const std::wstring& path, const char* key, bool dflt = false) {
     FILE* f = nullptr;
-    if (_wfopen_s(&f, path.c_str(), L"rb") || !f) return false;
+    if (_wfopen_s(&f, path.c_str(), L"rb") || !f) return dflt;
     char line[512];
-    bool on = false;
+    bool on = dflt;
     size_t klen = strlen(key);
     while (fgets(line, sizeof(line), f)) {
         char* p = line;
@@ -187,27 +188,42 @@ int wmain(int argc, wchar_t** argv) {
     std::wstring dir = self;
     dir = dir.substr(0, dir.find_last_of(L"\\/") + 1);          // the bin\win10 folder
     std::wstring xrDir = dir + L"EchoXR\\";
-    _wfopen_s(&g_log, (xrDir + L"launcher.log").c_str(), L"w");
 
     std::wstring exe = echoxr::kModdedExe;      // --exe <name> picks another executable in bin\win10
     std::wstring runtimeMode = L"steamvr";      // steamvr | active
-    std::wstring passArgs;
+    std::wstring passArgs, relaunchArgs;
     bool setupOnly = false;                     // --setup-only: do the first-run setup, don't launch
+    bool checkUpdate = false, afterUpdate = false;
     for (int i = 1; i < argc; ++i) {
         std::wstring a = argv[i];
-        if (a == L"--exe" && i + 1 < argc) { exe = argv[++i]; continue; }
-        if (a == L"--runtime" && i + 1 < argc) { runtimeMode = argv[++i]; continue; }
+        if (a == L"--check-update") { checkUpdate = true; continue; }   // check GitHub now
+        if (a == L"--after-update") { afterUpdate = true; continue; }   // started by the updater
+        relaunchArgs += L" \"" + a + L"\"";
+        if (a == L"--exe" && i + 1 < argc) { exe = argv[++i]; relaunchArgs += L" \"" + exe + L"\""; continue; }
+        if (a == L"--runtime" && i + 1 < argc) { runtimeMode = argv[++i]; relaunchArgs += L" \"" + runtimeMode + L"\""; continue; }
         if (a == L"--setup-only") { setupOnly = true; continue; }
         passArgs += L" \"" + a + L"\"";
     }
+    _wfopen_s(&g_log, (xrDir + L"launcher.log").c_str(), afterUpdate ? L"a" : L"w");
 
-    Log(L"EchoXR launcher");
+    Log(L"EchoXR launcher %hs", ECHOXR_VERSION);
+    const char* (CDECL* wineVersion)() = nullptr;
+    if (HMODULE ntdll = GetModuleHandleW(L"ntdll.dll"))
+        wineVersion = (const char* (CDECL*)())GetProcAddress(ntdll, "wine_get_version");
     std::wstring gameDir = dir.substr(0, dir.size() - 1);
     if (!echoxr::Exists(dir + L"echovr.exe"))
         return Fail(L"EchoXR.exe has to sit in Echo VR's bin\\win10 folder, next to echovr.exe.\n\n"
                     L"Copy EchoXR.exe and the EchoXR folder into ...\\ready-at-dawn-echo-arena\\bin\\win10\\.", 2);
     if (!echoxr::Exists(xrDir + L"LibOVRRT64_1.dll"))
         return Fail(L"EchoXR\\LibOVRRT64_1.dll is missing. Copy the whole EchoXR folder next to EchoXR.exe.", 2);
+
+    // a newer release on GitHub? (updater.h; not under Wine, which has no tar.exe)
+    if (!afterUpdate && !wineVersion && (checkUpdate || ReadIniFlag(xrDir + L"echoxr.ini", "CheckForUpdates", true)) &&
+        updater::CheckAndUpdate(dir, xrDir, checkUpdate, relaunchArgs + L" --after-update", Log)) {
+        Log(L"update: started the new EchoXR.exe");
+        if (g_log) fclose(g_log);
+        return 0;
+    }
 
     // first run: the patched game executable Echo needs to accept this runtime
     if (!_wcsicmp(exe.c_str(), echoxr::kModdedExe) && !echoxr::Exists(dir + exe)) {
@@ -228,9 +244,6 @@ int wmain(int argc, wchar_t** argv) {
     // Under Wine/Proton (echoxr-linux.sh), the prefix's registered runtime is Proton's
     // wineopenxr, which passes every call to the Linux runtime named by the host's
     // XR_RUNTIME_JSON. Pinning a Windows manifest here would break that, so leave it.
-    const char* (CDECL* wineVersion)() = nullptr;
-    if (HMODULE ntdll = GetModuleHandleW(L"ntdll.dll"))
-        wineVersion = (const char* (CDECL*)())GetProcAddress(ntdll, "wine_get_version");
     if (wineVersion) {
         Log(L"running under Wine %hs -- using the prefix's OpenXR runtime (wineopenxr)", wineVersion());
         runtimeMode = L"active";

@@ -68,6 +68,9 @@ The first launch sets things up:
 Hand tracking
 -------------
 In-game, hold both hands fully open once: that calibrates the open-hand pose.
+Press Ctrl+Alt+C (hands open) to recalibrate at any time.
+Valve Index controllers give full finger sensing; other controllers and
+controller-free hand tracking use the SteamVR hand skeleton.
 Settings: bin\\win10\\plugins\\EchoXRHands.txt (re-read while the game runs).
 Finger sharing: the plugin sends your fingers through a relay so other players
 running it can see them, and shows theirs (Network = 0 turns this off; it sends
@@ -84,6 +87,11 @@ into its bin/win10 folder as above, then run:
 
 It needs Steam with Proton Experimental, Proton 8+ or GE-Proton, and an active
 OpenXR runtime. Nothing else is installed. The finger bridge needs SteamVR.
+
+Updates
+-------
+EchoXR.exe checks GitHub for a new release once a day and asks before
+installing it. Turn that off with CheckForUpdates = 0 in EchoXR\\echoxr.ini.
 
 Logs
 ----

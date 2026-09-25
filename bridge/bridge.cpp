@@ -19,6 +19,19 @@
 //
 // openvr_api is loaded dynamically: next to this exe first, then Revive's copy
 // (C:\Program Files\Revive\openvr_api64.dll). Nothing is linked.
+//
+// FINGER SOURCES (FingerSource in plugins\EchoXRHands.txt; default auto)
+// ---------------------------------------------------------------------
+//   device  SteamVR's per-finger summary straight from the controller: the Index
+//           controllers' finger sensing, curls and splay.
+//   bones   curls worked out from the hand skeleton's joint rotations, against
+//           SteamVR's own open-hand reference pose. This is what controller-free
+//           hand tracking (Virtual Desktop, Steam Link, ALVR, ...) and other
+//           controllers provide; there is no splay.
+//   auto    device on Valve Index controllers, bones on everything else, and bones
+//           whenever a device summary isn't available.
+//
+// Ctrl+Alt+C anywhere asks the plugin to recalibrate (CalibrateHotkey = 0 turns it off).
 
 #define WIN32_LEAN_AND_MEAN
 #include <winsock2.h>
@@ -29,12 +42,15 @@
 #include <vector>
 #include <thread>
 #include <chrono>
+#include <math.h>
+#include <string.h>
 
 #define OPENVR_INTERFACE_INTERNAL
 #include "openvr.h"
 #include "../plugin/htv_protocol.h"
 
 #pragma comment(lib, "ws2_32.lib")
+#pragma comment(lib, "user32.lib")
 
 typedef uint32_t (VR_CALLTYPE* pfn_InitInternal2)(vr::EVRInitError*, vr::EVRApplicationType, const char*);
 typedef void     (VR_CALLTYPE* pfn_ShutdownInternal)();
@@ -99,6 +115,155 @@ static int SendText(const std::string& text) {
     return 0;
 }
 
+// ---------------------------------------------------------------------------
+// settings shared with the plugin: <game>\bin\win10\plugins\EchoXRHands.txt,
+// two folders up from EchoXR\Hands\ (or next to this exe, for a manual setup)
+// ---------------------------------------------------------------------------
+enum Source { SRC_AUTO, SRC_DEVICE, SRC_BONES };
+static Source g_Source = SRC_AUTO;
+static bool   g_Hotkey = true;
+
+static std::string Trim(std::string s) {
+    while (!s.empty() && (s.back() == ' ' || s.back() == '\t' || s.back() == '\r' || s.back() == '\n')) s.pop_back();
+    size_t i = 0;
+    while (i < s.size() && (s[i] == ' ' || s[i] == '\t')) ++i;
+    return s.substr(i);
+}
+
+static void LoadSettings() {
+    for (const std::string& path : { ExeDir() + "..\\..\\plugins\\EchoXRHands.txt", ExeDir() + "EchoXRHands.txt" }) {
+        FILE* f = nullptr;
+        if (fopen_s(&f, path.c_str(), "r") || !f) continue;
+        char line[512];
+        while (fgets(line, sizeof(line), f)) {
+            if (line[0] == '#' || line[0] == ';') continue;
+            char* eq = strchr(line, '=');
+            if (!eq) continue;
+            *eq = 0;
+            std::string k = Trim(line), v = Trim(eq + 1);
+            if (k == "FingerSource") g_Source = v == "device" ? SRC_DEVICE : v == "bones" ? SRC_BONES : SRC_AUTO;
+            else if (k == "CalibrateHotkey") g_Hotkey = v != "0";
+        }
+        fclose(f);
+        printf("settings: %s (FingerSource = %s)\n", path.c_str(),
+               g_Source == SRC_DEVICE ? "device" : g_Source == SRC_BONES ? "bones" : "auto");
+        return;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// curls from bone rotations
+// ---------------------------------------------------------------------------
+// OpenVR hand skeleton: thumb joints 3-5, then index/middle/ring/pinky proximal,
+// middle, distal at 8-10, 13-15, 18-20, 23-25 (each finger's metacarpal is one
+// before, its tip one after).
+static const int kJoint0[5] = { 3, 8, 13, 18, 23 };
+// Summed bend of the three joints at a full fist, in degrees.
+static const float kFistDeg[5] = { 120.0f, 250.0f, 250.0f, 250.0f, 240.0f };
+
+static float RelAngleDeg(const vr::HmdQuaternionf_t& ref, const vr::HmdQuaternionf_t& cur) {
+    // angle of conj(ref) * cur; only w is needed: w = ref . cur
+    float w = ref.w * cur.w + ref.x * cur.x + ref.y * cur.y + ref.z * cur.z;
+    if (w < 0) w = -w;
+    if (w > 1) w = 1;
+    return 2.0f * acosf(w) * 57.2957795f;
+}
+
+struct BoneSide { bool haveRef = false; vr::VRBoneTransform_t ref[31]; };
+static BoneSide g_Bones[2];
+
+static bool CurlsFromBones(vr::IVRInput* input, vr::VRActionHandle_t action, int side, float curl[5]) {
+    BoneSide& b = g_Bones[side];
+    if (!b.haveRef)
+        b.haveRef = input->GetSkeletalReferenceTransforms(action, vr::VRSkeletalTransformSpace_Parent,
+                                                           vr::VRSkeletalReferencePose_OpenHand, b.ref, 31) == vr::VRInputError_None;
+    if (!b.haveRef) return false;
+    vr::VRBoneTransform_t cur[31];
+    if (input->GetSkeletalBoneData(action, vr::VRSkeletalTransformSpace_Parent,
+                                   vr::VRSkeletalMotionRange_WithoutController, cur, 31) != vr::VRInputError_None) return false;
+    for (int f = 0; f < 5; ++f) {
+        float sum = 0;
+        for (int j = 0; j < 3; ++j) sum += RelAngleDeg(b.ref[kJoint0[f] + j].orientation, cur[kJoint0[f] + j].orientation);
+        float c = sum / kFistDeg[f];
+        curl[f] = c < 0 ? 0 : c > 1 ? 1 : c;
+    }
+    return true;
+}
+
+// Which controller drives this hand ("knuckles" = Valve Index), refreshed every second.
+static vr::IVRSystem* g_System = nullptr;
+static std::string ControllerType(vr::IVRInput* input, const vr::InputSkeletalActionData_t& ad) {
+    if (!g_System) return "";
+    vr::InputOriginInfo_t oi = {};
+    if (input->GetOriginTrackedDeviceInfo(ad.activeOrigin, &oi, sizeof(oi)) != vr::VRInputError_None) return "";
+    char buf[128] = {};
+    g_System->GetStringTrackedDeviceProperty(oi.trackedDeviceIndex, vr::Prop_ControllerType_String, buf, sizeof(buf), nullptr);
+    return buf;
+}
+
+// ---------------------------------------------------------------------------
+// SteamVR action manifest + one default binding per controller type. Written
+// next to this exe at startup (so an old install's Index-only manifest is
+// upgraded too); if that folder isn't writable, to %LOCALAPPDATA%\EchoXR\Hands.
+// Every binding is the same: both hand skeletons. Controller-free hand tracking
+// drivers present themselves as one of these types.
+// ---------------------------------------------------------------------------
+static const char* kControllerTypes[] = { "knuckles", "oculus_touch", "vive_controller", "vive_cosmos_controller",
+                                          "holographic_controller", "hpmotioncontroller" };
+
+static bool WriteIfChanged(const std::string& path, const std::string& text) {
+    FILE* f = nullptr;
+    if (!fopen_s(&f, path.c_str(), "rb") && f) {
+        std::string cur;
+        char buf[4096];
+        size_t n;
+        while ((n = fread(buf, 1, sizeof(buf), f)) > 0) cur.append(buf, n);
+        fclose(f);
+        if (cur == text) return true;
+    }
+    if (fopen_s(&f, path.c_str(), "wb") || !f) return false;
+    bool ok = fwrite(text.data(), 1, text.size(), f) == text.size();
+    return fclose(f) == 0 && ok;
+}
+
+static bool WriteManifestTo(const std::string& dir) {
+    std::string actions =
+        "{\n  \"action_manifest_version\": 0,\n  \"default_bindings\": [\n";
+    for (size_t i = 0; i < sizeof(kControllerTypes) / sizeof(*kControllerTypes); ++i) {
+        const char* t = kControllerTypes[i];
+        actions += std::string("    { \"controller_type\": \"") + t + "\", \"binding_url\": \"htv_bindings_" + t + ".json\" }" +
+                   (i + 1 < sizeof(kControllerTypes) / sizeof(*kControllerTypes) ? ",\n" : "\n");
+        std::string binding = std::string("{\n  \"action_manifest_version\": 0,\n  \"controller_type\": \"") + t +
+            "\",\n  \"name\": \"EchoXR Hands - " + t + "\",\n  \"bindings\": {\n    \"/actions/htv\": {\n      \"skeleton\": [\n"
+            "        { \"output\": \"/actions/htv/in/skeletonleft\",  \"path\": \"/user/hand/left/input/skeleton/left\" },\n"
+            "        { \"output\": \"/actions/htv/in/skeletonright\", \"path\": \"/user/hand/right/input/skeleton/right\" }\n"
+            "      ]\n    }\n  }\n}\n";
+        if (!WriteIfChanged(dir + "htv_bindings_" + t + ".json", binding)) return false;
+    }
+    actions +=
+        "  ],\n  \"actions\": [\n"
+        "    { \"name\": \"/actions/htv/in/SkeletonLeft\",  \"type\": \"skeleton\", \"skeleton\": \"/skeleton/hand/left\" },\n"
+        "    { \"name\": \"/actions/htv/in/SkeletonRight\", \"type\": \"skeleton\", \"skeleton\": \"/skeleton/hand/right\" }\n"
+        "  ],\n  \"action_sets\": [\n    { \"name\": \"/actions/htv\", \"usage\": \"leftright\" }\n  ],\n"
+        "  \"localization\": [\n    {\n      \"language_tag\": \"en_US\",\n      \"/actions/htv\": \"EchoXR Hands\",\n"
+        "      \"/actions/htv/in/SkeletonLeft\": \"Left hand skeleton\",\n"
+        "      \"/actions/htv/in/SkeletonRight\": \"Right hand skeleton\"\n    }\n  ]\n}\n";
+    return WriteIfChanged(dir + "htv_actions.json", actions);
+}
+
+static std::string WriteManifest() {
+    if (WriteManifestTo(ExeDir())) return ExeDir() + "htv_actions.json";
+    char local[MAX_PATH] = {};
+    if (GetEnvironmentVariableA("LOCALAPPDATA", local, MAX_PATH)) {
+        std::string dir = std::string(local) + "\\EchoXR\\";
+        CreateDirectoryA(dir.c_str(), nullptr);
+        dir += "Hands\\";
+        CreateDirectoryA(dir.c_str(), nullptr);
+        if (WriteManifestTo(dir)) { printf("manifest: %s (this folder isn't writable)\n", dir.c_str()); return dir + "htv_actions.json"; }
+    }
+    return ExeDir() + "htv_actions.json";   // whatever was shipped
+}
+
 int main(int argc, char** argv) {
     bool print = false;
     std::string text;
@@ -113,6 +278,8 @@ int main(int argc, char** argv) {
     if (!text.empty()) return SendText(text);
 
     if (!OpenSocket()) { printf("socket failed\n"); return 1; }
+    LoadSettings();
+    std::string manifest = WriteManifest();
     if (!LoadOpenVR()) {
         printf("Could not load openvr_api.dll. Put one next to this exe, or install Revive.\n");
         return 1;
@@ -127,7 +294,6 @@ int main(int argc, char** argv) {
     vr::IVRInput* input = (vr::IVRInput*)p_GetInterface(vr::IVRInput_Version, &err);
     if (!input) { printf("IVRInput %s unavailable (%d)\n", vr::IVRInput_Version, (int)err); p_Shutdown(); return 1; }
 
-    std::string manifest = ExeDir() + "htv_actions.json";
     vr::EVRInputError ie = input->SetActionManifestPath(manifest.c_str());
     if (ie != vr::VRInputError_None) {
         printf("SetActionManifestPath(%s) failed: %d\n", manifest.c_str(), (int)ie);
@@ -141,36 +307,66 @@ int main(int argc, char** argv) {
     input->GetActionHandle("/actions/htv/in/SkeletonLeft", &skel[0]);
     input->GetActionHandle("/actions/htv/in/SkeletonRight", &skel[1]);
 
+    g_System = (vr::IVRSystem*)p_GetInterface(vr::IVRSystem_Version, &err);
+    if (g_Hotkey) {
+        if (RegisterHotKey(nullptr, 1, MOD_CONTROL | MOD_ALT | MOD_NOREPEAT, 'C')) printf("Ctrl+Alt+C recalibrates\n");
+        else printf("Ctrl+Alt+C is taken by another program -- no calibrate hotkey\n");
+    }
+
     printf("streaming to 127.0.0.1:%d -- Ctrl+C to stop\n", HTV_PORT);
     HtvFrame fr = {};
     fr.magic = HTV_MAGIC;
     auto next = std::chrono::steady_clock::now();
-    int printTick = 0;
+    int printTick = 0, typeTick = 0;
+    std::string type[2];
+    const char* used[2] = { "-", "-" };
     for (;;) {
+        MSG m;
+        while (PeekMessageA(&m, nullptr, WM_HOTKEY, WM_HOTKEY, PM_REMOVE)) {
+            static const char cmd[] = "Calibrate = 1\n";
+            sendto(g_Sock, cmd, sizeof(cmd) - 1, 0, (SOCKADDR*)&g_To, sizeof(g_To));
+            printf("\ncalibrate requested -- hold both hands fully open\n");
+        }
+
         vr::VRActiveActionSet_t active = {};
         active.ulActionSet = set;
         input->UpdateActionState(&active, sizeof(active), 1);
+        bool refreshType = (typeTick++ % 120) == 0;
 
         for (int side = 0; side < 2; ++side) {
             vr::InputSkeletalActionData_t ad = {};
             fr.valid[side] = 0;
+            used[side] = "-";
             if (input->GetSkeletalActionData(skel[side], &ad, sizeof(ad)) != vr::VRInputError_None || !ad.bActive)
                 continue;
+            if (refreshType) {
+                std::string t = ControllerType(input, ad);
+                if (t != type[side]) {
+                    type[side] = t;
+                    printf("\n%s hand: controller '%s'\n", side ? "right" : "left", t.empty() ? "?" : t.c_str());
+                }
+            }
+            bool wantDevice = g_Source == SRC_DEVICE || (g_Source == SRC_AUTO && type[side] == "knuckles");
             vr::VRSkeletalSummaryData_t sum = {};
-            if (input->GetSkeletalSummaryData(skel[side], vr::VRSummaryType_FromDevice, &sum) != vr::VRInputError_None)
-                continue;
-            for (int f = 0; f < 5; ++f) fr.curl[side][f] = sum.flFingerCurl[f];
-            for (int f = 0; f < 4; ++f) fr.splay[side][f] = sum.flFingerSplay[f];
-            fr.valid[side] = 1;
+            if (wantDevice && input->GetSkeletalSummaryData(skel[side], vr::VRSummaryType_FromDevice, &sum) == vr::VRInputError_None) {
+                for (int f = 0; f < 5; ++f) fr.curl[side][f] = sum.flFingerCurl[f];
+                for (int f = 0; f < 4; ++f) fr.splay[side][f] = sum.flFingerSplay[f];
+                fr.valid[side] = 1;
+                used[side] = "device";
+            } else if (g_Source != SRC_DEVICE && CurlsFromBones(input, skel[side], side, fr.curl[side])) {
+                for (int f = 0; f < 4; ++f) fr.splay[side][f] = 0.0f;
+                fr.valid[side] = 1;
+                used[side] = "bones";
+            }
         }
         ++fr.seq;
         sendto(g_Sock, (const char*)&fr, sizeof(fr), 0, (SOCKADDR*)&g_To, sizeof(g_To));
 
         if (print && ++printTick >= 12) {
             printTick = 0;
-            printf("\rL %s T%.2f I%.2f M%.2f R%.2f P%.2f   R %s T%.2f I%.2f M%.2f R%.2f P%.2f   ",
-                   fr.valid[0] ? "on " : "off", fr.curl[0][0], fr.curl[0][1], fr.curl[0][2], fr.curl[0][3], fr.curl[0][4],
-                   fr.valid[1] ? "on " : "off", fr.curl[1][0], fr.curl[1][1], fr.curl[1][2], fr.curl[1][3], fr.curl[1][4]);
+            printf("\rL %-6s T%.2f I%.2f M%.2f R%.2f P%.2f   R %-6s T%.2f I%.2f M%.2f R%.2f P%.2f   ",
+                   used[0], fr.curl[0][0], fr.curl[0][1], fr.curl[0][2], fr.curl[0][3], fr.curl[0][4],
+                   used[1], fr.curl[1][0], fr.curl[1][1], fr.curl[1][2], fr.curl[1][3], fr.curl[1][4]);
             fflush(stdout);
         }
         next += std::chrono::microseconds(8333);   // ~120 Hz

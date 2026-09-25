@@ -47,6 +47,13 @@ points Echo at it. Starting `echovr.exe` the usual way is unaffected.
 Source: `src/launcher.cpp`. It sets up one launch, starts Echo and waits for it
 to exit:
 
+0. **Checks for an update** (`src/updater.h`), at most once every 20 hours: the
+   latest GitHub release of `heisthecat31/EchoXR`, compared with the version built
+   in from `VERSION`. A newer `EchoXR-v*.zip` is offered, downloaded, checked,
+   unpacked over the install with Windows' `tar.exe`, and started in place of
+   the running launcher, which is renamed to `EchoXR.exe.old` rather than
+   overwritten. `CheckForUpdates = 0` in `EchoXR\echoxr.ini` turns it off, and
+   `--check-update` checks now.
 1. **Checks and sets up.** `EchoXR.exe` has to be next to `echovr.exe`, and
    `EchoXR\LibOVRRT64_1.dll` has to exist; otherwise it says so in a message box.
    If `echovr_openxr.exe` is missing, it makes it (see above). From a release
