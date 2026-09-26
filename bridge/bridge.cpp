@@ -32,6 +32,8 @@
 //           whenever a device summary isn't available.
 //
 // Ctrl+Alt+C anywhere asks the plugin to recalibrate (CalibrateHotkey = 0 turns it off).
+// With CalibrateOnLaunch = 1 the same happens by itself 10 seconds after Echo starts,
+// with a spoken prompt and countdown (LaunchCalibrateThread).
 
 #define WIN32_LEAN_AND_MEAN
 #include <winsock2.h>
@@ -44,6 +46,8 @@
 #include <chrono>
 #include <math.h>
 #include <string.h>
+#include <atomic>
+#include <sapi.h>
 
 #define OPENVR_INTERFACE_INTERNAL
 #include "openvr.h"
@@ -51,6 +55,8 @@
 
 #pragma comment(lib, "ws2_32.lib")
 #pragma comment(lib, "user32.lib")
+#pragma comment(lib, "ole32.lib")
+#pragma comment(lib, "sapi.lib")
 
 typedef uint32_t (VR_CALLTYPE* pfn_InitInternal2)(vr::EVRInitError*, vr::EVRApplicationType, const char*);
 typedef void     (VR_CALLTYPE* pfn_ShutdownInternal)();
@@ -130,7 +136,8 @@ static std::string Trim(std::string s) {
     return s.substr(i);
 }
 
-static void LoadSettings() {
+// Every "Key = Value" in the first settings file found; returns that file's path, or "".
+static std::string ReadSettings(std::vector<std::pair<std::string, std::string>>& out) {
     for (const std::string& path : { ExeDir() + "..\\..\\plugins\\EchoXRHands.txt", ExeDir() + "EchoXRHands.txt" }) {
         FILE* f = nullptr;
         if (fopen_s(&f, path.c_str(), "r") || !f) continue;
@@ -140,15 +147,35 @@ static void LoadSettings() {
             char* eq = strchr(line, '=');
             if (!eq) continue;
             *eq = 0;
-            std::string k = Trim(line), v = Trim(eq + 1);
-            if (k == "FingerSource") g_Source = v == "device" ? SRC_DEVICE : v == "bones" ? SRC_BONES : SRC_AUTO;
-            else if (k == "CalibrateHotkey") g_Hotkey = v != "0";
+            out.push_back({ Trim(line), Trim(eq + 1) });
         }
         fclose(f);
-        printf("settings: %s (FingerSource = %s)\n", path.c_str(),
-               g_Source == SRC_DEVICE ? "device" : g_Source == SRC_BONES ? "bones" : "auto");
-        return;
+        return path;
     }
+    return "";
+}
+
+static void LoadSettings() {
+    std::vector<std::pair<std::string, std::string>> kv;
+    std::string path = ReadSettings(kv);
+    if (path.empty()) return;
+    for (auto& kvp : kv) {
+        const std::string &k = kvp.first, &v = kvp.second;
+        if (k == "FingerSource") g_Source = v == "device" ? SRC_DEVICE : v == "bones" ? SRC_BONES : SRC_AUTO;
+        else if (k == "CalibrateHotkey") g_Hotkey = v != "0";
+    }
+    printf("settings: %s (FingerSource = %s)\n", path.c_str(),
+           g_Source == SRC_DEVICE ? "device" : g_Source == SRC_BONES ? "bones" : "auto");
+}
+
+// CalibrateOnLaunch, read fresh each time Echo starts (so it can be changed in the
+// settings window without restarting the bridge).
+static bool CalibrateOnLaunch() {
+    std::vector<std::pair<std::string, std::string>> kv;
+    ReadSettings(kv);
+    bool on = false;
+    for (auto& kvp : kv) if (kvp.first == "CalibrateOnLaunch") on = atoi(kvp.second.c_str()) != 0;   // the last one wins, as in the plugin
+    return on;
 }
 
 // ---------------------------------------------------------------------------
@@ -219,6 +246,73 @@ static std::string ControllerType(vr::IVRInput* input, const vr::InputSkeletalAc
     char buf[128] = {};
     g_System->GetStringTrackedDeviceProperty(oi.trackedDeviceIndex, vr::Prop_ControllerType_String, buf, sizeof(buf), nullptr);
     return buf;
+}
+
+// ---------------------------------------------------------------------------
+// calibrate on launch (CalibrateOnLaunch = 1): once per Echo launch, 10 seconds after
+// the plugin loaded, say out loud to hold both hands open, count down, and calibrate
+// the same way Ctrl+Alt+C does. The plugin's "Uptime" reply tells a fresh launch
+// apart from this bridge (re)starting while a match is already going.
+// ---------------------------------------------------------------------------
+static const ULONGLONG kLaunchCalibrateMs = 10000;
+static const ULONGLONG kFreshLaunchMs = 60000;   // plugin older than this: not a fresh launch
+static std::atomic<bool> g_CalibrateNow(false);   // the streaming loop does the calibrating
+
+// ms since the plugin loaded, -1 if Echo isn't running, -2 if it answered without an uptime
+static long long PluginUptime(SOCKET s) {
+    static const char q[] = "Uptime";
+    if (sendto(s, q, sizeof(q) - 1, 0, (SOCKADDR*)&g_To, sizeof(g_To)) <= 0) return -1;
+    char buf[64];
+    int n = recv(s, buf, sizeof(buf) - 1, 0);
+    if (n <= 0) return -1;
+    buf[n] = 0;
+    return strncmp(buf, "UP ", 3) ? -2 : _atoi64(buf + 3);
+}
+
+static void Say(ISpVoice* voice, const wchar_t* text) {
+    if (voice) voice->Speak(text, SPF_DEFAULT, nullptr);   // waits until it has been said
+}
+
+static void LaunchCalibrateThread() {
+    CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    ISpVoice* voice = nullptr;
+    SOCKET s = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    DWORD tmo = 500;
+    setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tmo, sizeof(tmo));
+    bool up = false;
+    ULONGLONG fireAt = 0;   // GetTickCount64 to start at, 0 = nothing pending
+    for (;;) {
+        long long uptime = PluginUptime(s);
+        bool nowUp = uptime != -1;
+        if (nowUp && !up) {   // Echo (the plugin) just appeared
+            if (uptime >= 0 && (ULONGLONG)uptime < kFreshLaunchMs && CalibrateOnLaunch()) {
+                ULONGLONG wait = (ULONGLONG)uptime < kLaunchCalibrateMs ? kLaunchCalibrateMs - uptime : 0;
+                fireAt = GetTickCount64() + wait;
+                printf("\nEcho started -- calibrating in %llu s (CalibrateOnLaunch)\n", (wait + 999) / 1000);
+            }
+        } else if (!nowUp && up) {
+            fireAt = 0;   // Echo closed before it was time
+        }
+        up = nowUp;
+        if (fireAt && GetTickCount64() >= fireAt) {
+            fireAt = 0;
+            if (!voice && FAILED(CoCreateInstance(CLSID_SpVoice, nullptr, CLSCTX_ALL, IID_ISpVoice, (void**)&voice)))
+                printf("\ntext-to-speech unavailable -- calibrating silently\n");
+            printf("\nhold both hands in front of your face, flat out...\n");
+            Say(voice, L"Please hold your hands in front of your face, flat out.");
+            for (const wchar_t* n : { L"3", L"2", L"1" }) {
+                ULONGLONG t = GetTickCount64();
+                printf("%ls... ", n);
+                Say(voice, n);
+                ULONGLONG spent = GetTickCount64() - t;
+                if (spent < 1000) Sleep((DWORD)(1000 - spent));
+            }
+            g_CalibrateNow = true;
+            Sleep(200);
+            Say(voice, L"Calibrated.");
+        }
+        Sleep(fireAt ? 250 : 1000);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -333,6 +427,7 @@ int main(int argc, char** argv) {
         else printf("Ctrl+Alt+C is taken by another program -- no calibrate hotkey\n");
     }
 
+    std::thread(LaunchCalibrateThread).detach();
     printf("streaming to 127.0.0.1:%d -- Ctrl+C to stop\n", HTV_PORT);
     HtvFrame fr = {};
     fr.magic = HTV_MAGIC;
@@ -342,7 +437,9 @@ int main(int argc, char** argv) {
     const char* used[2] = { "-", "-" };
     for (;;) {
         MSG m;
-        while (PeekMessageA(&m, nullptr, WM_HOTKEY, WM_HOTKEY, PM_REMOVE)) {
+        bool calibrate = g_CalibrateNow.exchange(false);
+        while (PeekMessageA(&m, nullptr, WM_HOTKEY, WM_HOTKEY, PM_REMOVE)) calibrate = true;
+        if (calibrate) {
             static const char cmd[] = "Calibrate = 1\n";
             sendto(g_Sock, cmd, sizeof(cmd) - 1, 0, (SOCKADDR*)&g_To, sizeof(g_To));
             printf("\ncalibrate requested -- hold both hands fully open\n");

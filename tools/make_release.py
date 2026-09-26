@@ -31,6 +31,7 @@ FILES = [
     ("xr/out/openxr_loader.dll",                   "EchoXR/openxr_loader.dll"),
     ("installer/stage/THIRD_PARTY_NOTICES.txt",    "EchoXR/THIRD_PARTY_NOTICES.txt"),
     ("out/EchoXRHands.exe",                        "EchoXR/Hands/EchoXRHands.exe"),
+    ("out/EchoXRSettings.exe",                     "EchoXR/Hands/EchoXRSettings.exe"),
     ("out/htv_actions.json",                       "EchoXR/Hands/htv_actions.json"),
     ("out/htv_bindings_knuckles.json",             "EchoXR/Hands/htv_bindings_knuckles.json"),
     ("xr/Revive/Externals/openvr/bin/win64/openvr_api.dll", "EchoXR/Hands/openvr_api.dll"),
@@ -71,7 +72,8 @@ In-game, hold both hands fully open once: that calibrates the open-hand pose.
 Press Ctrl+Alt+C (hands open) to recalibrate at any time.
 Valve Index controllers give full finger sensing; other controllers and
 controller-free hand tracking use the SteamVR hand skeleton.
-Settings: bin\\win10\\plugins\\EchoXRHands.txt (re-read while the game runs).
+Settings: run EchoXR\\Hands\\EchoXRSettings.exe. Changes show in-game as you make
+them; they're stored in bin\\win10\\plugins\\EchoXRHands.txt (re-read while the game runs).
 Finger sharing: the plugin sends your fingers through a relay so other players
 running it can see them, and shows theirs (Network = 0 turns this off; it sends
 your display name and your match's player names so the relay can pair you up).

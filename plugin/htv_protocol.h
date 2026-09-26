@@ -4,7 +4,9 @@
 // Two kinds of datagram arrive on HTV_PORT:
 //   * a binary HtvFrame, recognised by its magic, sent ~120 times a second;
 //   * plain "Key = Value" text, the same syntax as handtracking_config.txt,
-//     applied immediately (the bridge's --set option sends these).
+//     applied immediately (the bridge's --set option sends these). Two text queries
+//     are answered instead: "Ping" -> "PONG", and "Uptime" -> "UP <ms since the
+//     plugin loaded>", which the bridge uses to spot a fresh Echo launch.
 #pragma once
 #include <stdint.h>
 

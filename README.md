@@ -21,8 +21,20 @@ both migrate old installs.
 | **Other players' fingers** | The plugin sends your finger curls through a relay (`Network = 1`), and poses players who send theirs. |
 | **Auto-start** | `EchoXR.exe` can run the finger bridge alongside Echo and close it afterwards. |
 | **Calibrate hotkey** | Ctrl+Alt+C recalibrates the open-hand pose at any time. |
+| **Settings window** | `EchoXRSettings.exe` edits every setting, and the change shows in-game straight away. |
 | **Updates** | `EchoXR.exe` checks GitHub for a new release once a day, and offers to install it. |
 | **Install and update** | `EchoXRSetup.exe` is an installer with a GUI. The release zip needs nothing more than unzipping; `EchoXR.exe` does the setup on first launch. |
+
+### Screenshots
+
+| Setup | Settings |
+| --- | --- |
+| <img src="docs/screenshots/setup.png" width="380" alt="EchoXRSetup: game folder, and a switch for each part"> | <img src="docs/screenshots/settings-general.png" width="480" alt="EchoXR Hands settings, General page"> |
+
+<img src="docs/screenshots/settings-pose.png" width="480" alt="EchoXR Hands settings, Pose page: a slider for each joint">
+
+The settings window writes each change to `EchoXRHands.txt` as you make it, and Echo
+picks it up within half a second.
 
 ### What has been seen working
 
@@ -79,7 +91,8 @@ From the logs of real sessions on the current Echo build:
 bin\win10\
   EchoXR.exe                  the launcher
   EchoXR\                     OpenXR runtime, loader, licences, README.txt
-    Hands\                    finger bridge (EchoXRHands.exe) and its SteamVR files
+    Hands\                    finger bridge (EchoXRHands.exe) and its SteamVR files,
+                              settings window (EchoXRSettings.exe)
       install\                plugin, default settings, plugin loader
 ```
 
@@ -103,12 +116,13 @@ part as a switch:
 
 | switch | what it installs |
 | --- | --- |
-| Hand tracking | `plugins\EchoXRHands.dll` and `plugins\EchoXRHands.txt`. An existing `EchoXRHands.txt` is kept; new defaults go to `EchoXRHands.default.txt`. |
+| Hand tracking | `plugins\EchoXRHands.dll`, `plugins\EchoXRHands.txt` and the settings window `EchoXR\Hands\EchoXRSettings.exe`. An existing `EchoXRHands.txt` is kept; new defaults go to `EchoXRHands.default.txt`. |
 | Finger bridge | `EchoXR\Hands\`: `EchoXRHands.exe`, its SteamVR manifest, `openvr_api.dll`, `fake_index.py` |
 | EchoXR runtime | `EchoXR.exe`, `EchoXR\` (runtime, OpenXR loader, licences) and the patched `echovr_openxr.exe` |
 | Start hand tracking with EchoXR | `EchoXR\echoxr.ini` `AutoStartHands = 1` or `0` |
+| Open settings with EchoXR | `EchoXR\echoxr.ini` `AutoStartSettings = 1` or `0` (off by default) |
 | Plugin loader | `dbgcore.dll`, following the [loader rules](#plugin-loader) |
-| Desktop shortcuts | `EchoXR.lnk` and `EchoXR Hands.lnk` |
+| Desktop shortcuts | `EchoXR.lnk`, `EchoXR Hands.lnk` and `EchoXR Hands Settings.lnk` |
 
 The installer also clears out pre-rename files. It removes
 `plugins\HandTrackingValve.dll` and the `HandTrackingBridge\` folder, and renames
@@ -125,8 +139,8 @@ To run it without the window:
 EchoXRSetup.exe --silent [--dir <folder>] [--components <mask>] [--uninstall]
 ```
 
-The mask bits are 1 hand tracking, 2 bridge, 4 EchoXR, 8 loader, 16 shortcuts and
-32 auto-start. The log is `%TEMP%\EchoXRSetup.log`.
+The mask bits are 1 hand tracking, 2 bridge, 4 EchoXR, 8 loader, 16 shortcuts,
+32 auto-start hand tracking and 64 auto-open settings. The log is `%TEMP%\EchoXRSetup.log`.
 
 ### Plugin loader
 
@@ -214,15 +228,27 @@ EchoXRHands.exe --ping                   check the plugin is loaded
 Settings are in `plugins\EchoXRHands.txt`. The plugin re-reads it within half a
 second, so you can edit it while you play. The bridge reads it when it starts.
 
+The easy way to change them is `EchoXR\Hands\EchoXRSettings.exe`, the settings
+window. It has every setting, grouped into pages, as switches, sliders and choices.
+Each change is written to `EchoXRHands.txt` as you make it (a slider writes while you
+drag), so with Echo running you see it on your hands within half a second. It only
+rewrites the line that changed: your comments and ordering are kept. Settings that
+need a restart (the bridge's, and `Platform`) are marked. The window also shows
+whether Echo is running, has a **Calibrate** button (3-second countdown, so you can
+get your hands open) and an undo arrow on every setting that differs from the
+default. `EchoXRSettings.exe --file <path>` edits another copy of the file.
+
 | setting | what it does |
 | --- | --- |
 | `FingerSource = auto` | `device` = SteamVR's per-finger summary from the controller (Index finger sensing, with spread). `bones` = curls from the hand skeleton's joints, measured against SteamVR's open-hand pose (other controllers, controller-free hand tracking). `auto` = `device` on Index, `bones` on everything else. `--print` shows which each hand uses. With `bones`, each finger's zero is the straightest it has been this session, and Ctrl+Alt+C resets it to your hand as it is. |
 | `SplayDeg = 0` | how far fingers spread per unit of Index splay, relative to your relaxed open hand. 0 = off; try 10-20 on Index |
 | `ThumbStraighten = 40` | how far an open thumb stands up past its rest, per joint (thumbs up) |
 | `CalibrateHotkey = 1` | Ctrl+Alt+C recalibrates; 0 frees the hotkey |
+| `CalibrateOnLaunch = 0` | 1 = 10 seconds after Echo launches, the bridge says "Please hold your hands in front of your face, flat out", counts down 3-2-1 out loud (Windows text-to-speech) and calibrates, like Ctrl+Alt+C. Once per launch, and only for a fresh launch: restarting the bridge mid-game doesn't set it off. Read each time Echo starts. |
 
 `EchoXR\echoxr.ini` holds the launcher's settings: `AutoStartHands` (run the
-bridge with Echo) and `CheckForUpdates`. With `CheckForUpdates = 1` (the default),
+bridge with Echo), `AutoStartSettings` (open the settings window with Echo, and
+close it when Echo exits) and `CheckForUpdates`. With `CheckForUpdates = 1` (the default),
 `EchoXR.exe` asks GitHub for the latest release at most once every 20 hours, with
 a 4-second timeout so a launch is never held up. If there's a newer
 `EchoXR-v*.zip`, it asks first, then downloads it, checks it, unpacks it over the
@@ -314,7 +340,7 @@ Everything builds with MSVC (Visual Studio 2026 toolset).
 
 | command | builds |
 | --- | --- |
-| `build.bat` | `out\EchoXRHands.dll` (plugin), `out\EchoXRHands.exe` (bridge), settings and manifests |
+| `build.bat` | `out\EchoXRHands.dll` (plugin), `out\EchoXRHands.exe` (bridge), `out\EchoXRSettings.exe` (settings window), settings and manifests |
 | `xr\build_xr.bat` | `xr\out\LibOVRRT64_1.dll`, `openxr_loader.dll` and `EchoXR.exe`. It needs three upstream checkouts plus a patch; [xr/README.md](xr/README.md) has the exact commits and commands |
 | `xr\build_launcher.bat` | just `xr\out\EchoXR.exe` (quick) |
 | `installer\build_installer.bat [--all]` | all of the above as needed, then `out\EchoXRSetup.exe` |
@@ -330,6 +356,7 @@ in `VERSION`. `linux\echoxr-linux.sh` needs no build; the release zip ships it a
 | --- | --- |
 | `plugin/` | EchoXR Hands plugin (hooks, posing, relay, Platform setting) |
 | `bridge/` | finger bridge (SteamVR input → plugin, UDP `127.0.0.1:8768`) |
+| `settings/` | settings window (edits `EchoXRHands.txt` live; shares the installer's UI kit, `installer/ui.h`) |
 | `xr/` | EchoXR runtime glue and launcher (`src/`), Revive patch (`patches/`) |
 | `installer/` | `EchoXRSetup.exe` source, logo |
 | `linux/` | Linux launcher script |

@@ -1,0 +1,7 @@
+#include "res.h"
+
+// paths are relative to the repo root (build.bat runs rc from there)
+IDI_APP       ICON   "installer\\logo\\echoxr.ico"
+IDR_DEFAULTS  RCDATA "EchoXRHands.txt"
+
+1 24 "settings\\settings.manifest"

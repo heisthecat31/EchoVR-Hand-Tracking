@@ -14,3 +14,4 @@
 #define IDR_LAUNCHER     310   // EchoXR.exe
 #define IDR_LOADER       311   // dbgcore.dll (plugin loader)
 #define IDR_NOTICES      312   // THIRD_PARTY_NOTICES.txt
+#define IDR_SETTINGS     313   // EchoXRSettings.exe (settings window)

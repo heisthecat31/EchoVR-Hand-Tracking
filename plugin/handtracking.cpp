@@ -1287,6 +1287,8 @@ static void __fastcall Hooked_ThumbPiston(uint8_t* cs) {
 // =============================================================================
 // Threads: UDP receiver, config-file watcher, installer
 // =============================================================================
+static const ULONGLONG g_LoadTick = GetTickCount64();   // when Echo loaded the plugin
+
 static void UdpThread() {
     WSADATA wsa;
     if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) { Log("WSAStartup failed"); return; }
@@ -1320,6 +1322,7 @@ static void UdpThread() {
         std::string text(buf.data(), n);
         std::string reply;
         if (Trim(text) == "Ping") reply = "PONG";
+        else if (Trim(text) == "Uptime") reply = "UP " + std::to_string(GetTickCount64() - g_LoadTick);   // the bridge's launch check
         else { int k = ApplyConfigText(text); reply = "OK " + std::to_string(k); Log("live: %s", Trim(text).c_str()); }
         sendto(s, reply.c_str(), (int)reply.size(), 0, (SOCKADDR*)&from, fl);
     }

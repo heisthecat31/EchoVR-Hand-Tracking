@@ -28,6 +28,13 @@ if %ERRORLEVEL% neq 0 exit /b %ERRORLEVEL%
 cl.exe /nologo /MD /O2 /EHsc /W3 /Ithird_party /Foobj\ /Fe"out\EchoXRHands.exe" bridge\bridge.cpp obj\bridge.res ws2_32.lib
 if %ERRORLEVEL% neq 0 exit /b %ERRORLEVEL%
 
+echo Building EchoXRSettings.exe (settings window)...
+rc.exe /nologo /fo obj\settings.res settings\settings.rc
+if %ERRORLEVEL% neq 0 exit /b %ERRORLEVEL%
+cl.exe /nologo /MT /O2 /EHsc /W3 /utf-8 /DUNICODE /D_UNICODE /Foobj\ /Fe"out\EchoXRSettings.exe" settings\settings.cpp obj\settings.res ^
+  /link /SUBSYSTEM:WINDOWS user32.lib gdi32.lib gdiplus.lib dwmapi.lib shell32.lib ole32.lib ws2_32.lib
+if %ERRORLEVEL% neq 0 exit /b %ERRORLEVEL%
+
 copy /Y EchoXRHands.txt out\ >nul
 copy /Y bridge\htv_actions.json out\ >nul
 copy /Y bridge\htv_bindings_knuckles.json out\ >nul

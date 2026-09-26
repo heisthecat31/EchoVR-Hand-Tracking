@@ -12,7 +12,7 @@
 //   EchoXR.exe, EchoXR\          OpenXR launcher + runtime (ReviveXR, OpenXR loader);
 //                                EchoXR\echoxr.ini holds AutoStartHands
 //   EchoXR\Hands\                finger bridge (EchoXRHands.exe) + its SteamVR manifest,
-//                                openvr_api.dll, fake_index.py
+//                                openvr_api.dll, fake_index.py; EchoXRSettings.exe (with the plugin)
 //   echovr_openxr.exe            patched copy of echovr.exe (see MakeOpenXRExe)
 //
 // Files from before the EchoXR rename (HandTrackingValve.dll, HandTrackingBridge\, the old
@@ -59,16 +59,18 @@ using namespace Gdiplus;
 // what gets installed
 // ---------------------------------------------------------------------------
 // bit values are the --components mask: 1 hands plugin, 2 bridge, 4 EchoXR, 8 loader,
-// 16 desktop shortcuts, 32 start hand tracking with EchoXR
-enum { C_PLUGIN, C_BRIDGE, C_XR, C_LOADER, C_SHORTCUTS, C_AUTOSTART, C_COUNT };
+// 16 desktop shortcuts, 32 start hand tracking with EchoXR, 64 open the settings window
+// with EchoXR
+enum { C_PLUGIN, C_BRIDGE, C_XR, C_LOADER, C_SHORTCUTS, C_AUTOSTART, C_AUTOSETTINGS, C_COUNT };
 static const int kDefaultMask = (1 << C_PLUGIN) | (1 << C_BRIDGE) | (1 << C_XR) | (1 << C_LOADER) | (1 << C_AUTOSTART);
-static const int kCardOrder[C_COUNT] = { C_PLUGIN, C_BRIDGE, C_XR, C_AUTOSTART, C_LOADER, C_SHORTCUTS };
+static const int kCardOrder[C_COUNT] = { C_PLUGIN, C_BRIDGE, C_XR, C_AUTOSTART, C_AUTOSETTINGS, C_LOADER, C_SHORTCUTS };
 
 struct Item { int comp; int res; const wchar_t* rel; };
 static const Item kItems[] = {
     { C_LOADER, IDR_LOADER,    L"dbgcore.dll" },
     { C_PLUGIN, IDR_PLUGIN,    L"plugins\\EchoXRHands.dll" },
     { C_PLUGIN, IDR_CONFIG,    L"plugins\\EchoXRHands.txt" },
+    { C_PLUGIN, IDR_SETTINGS,  L"EchoXR\\Hands\\EchoXRSettings.exe" },
     { C_BRIDGE, IDR_BRIDGE,    L"EchoXR\\Hands\\EchoXRHands.exe" },
     { C_BRIDGE, IDR_ACTIONS,   L"EchoXR\\Hands\\htv_actions.json" },
     { C_BRIDGE, IDR_BINDINGS,  L"EchoXR\\Hands\\htv_bindings_knuckles.json" },
@@ -85,6 +87,8 @@ static const wchar_t* kBridgeRel  = L"EchoXR\\Hands\\EchoXRHands.exe";
 static const wchar_t* kIniRel     = L"EchoXR\\echoxr.ini";
 static const wchar_t* kLnkBridge  = L"EchoXR Hands.lnk";
 static const wchar_t* kLnkXR      = L"EchoXR.lnk";
+static const wchar_t* kSettingsRel = L"EchoXR\\Hands\\EchoXRSettings.exe";
+static const wchar_t* kLnkSettings = L"EchoXR Hands Settings.lnk";
 
 // files the components leave behind at runtime; removed on uninstall
 static const Item kRuntimeFiles[] = {
@@ -316,6 +320,7 @@ static bool MakeShortcut(const std::wstring& lnk, const std::wstring& target, co
 static std::wstring RunningBlockers(int mask) {
     std::vector<const wchar_t*> names;
     if (mask & ((1 << C_PLUGIN) | (1 << C_XR) | (1 << C_LOADER))) { names.push_back(L"echovr.exe"); names.push_back(kModdedExe); }
+    if (mask & (1 << C_PLUGIN)) names.push_back(L"EchoXRSettings.exe");
     if (mask & (1 << C_BRIDGE)) { names.push_back(L"EchoXRHands.exe"); names.push_back(L"HandTrackingBridge.exe"); }
     if (mask & (1 << C_XR)) names.push_back(L"EchoXR.exe");
     std::wstring found;
@@ -442,18 +447,22 @@ static bool Install(const std::wstring& dir, int mask) {
         else { Step(ST_FAIL, std::wstring(kModdedExe) + L"  -- " + err); ++failed; }
         ++g_done;
     }
-    // EchoXR\echoxr.ini: whether EchoXR.exe starts the finger bridge
+    // EchoXR\echoxr.ini: whether EchoXR.exe starts the finger bridge and the settings window
     if ((mask & (1 << C_XR)) || Exists(dir + L"\\EchoXR.exe")) {
         bool on = (mask & (1 << C_AUTOSTART)) && Exists(dir + L"\\" + kBridgeRel);
+        bool settings = (mask & (1 << C_AUTOSETTINGS)) && Exists(dir + L"\\" + kSettingsRel);
         std::string ini = std::string("# EchoXR launcher settings (written by EchoXRSetup)\r\n") +
                           "# 1 = EchoXR.exe also runs EchoXR\\Hands\\EchoXRHands.exe while Echo runs\r\n" +
-                          "AutoStartHands = " + (on ? "1" : "0") + "\r\n";
+                          "AutoStartHands = " + (on ? "1" : "0") + "\r\n" +
+                          "# 1 = EchoXR.exe also opens the hand tracking settings window (EchoXRSettings.exe)\r\n" +
+                          "AutoStartSettings = " + (settings ? "1" : "0") + "\r\n";
         FILE* f = nullptr;
         SHCreateDirectoryExW(nullptr, (dir + L"\\EchoXR").c_str(), nullptr);
         if (!_wfopen_s(&f, (dir + L"\\" + kIniRel).c_str(), L"wb") && f) {
             fwrite(ini.data(), 1, ini.size(), f);
             fclose(f);
             Step(on ? ST_OK : ST_INFO, on ? L"Hand tracking starts with EchoXR" : L"Hand tracking won't start with EchoXR (turned off)");
+            Step(settings ? ST_OK : ST_INFO, settings ? L"The settings window opens with EchoXR" : L"The settings window won't open with EchoXR (turned off)");
         } else {
             Step(ST_FAIL, std::wstring(kIniRel) + L"  -- " + ErrText(GetLastError()));
             ++failed;
@@ -470,6 +479,11 @@ static bool Install(const std::wstring& dir, int mask) {
             std::wstring args = Exists(dir + L"\\" + kModdedExe) ? std::wstring(L"--exe ") + kModdedExe : L"";
             bool ok = MakeShortcut(desk + L"\\" + kLnkXR, dir + L"\\EchoXR.exe", args, L"EchoXR: Echo VR on SteamVR through OpenXR");
             Step(ok ? ST_OK : ST_FAIL, std::wstring(L"Desktop shortcut: ") + kLnkXR);
+        }
+        if (!desk.empty() && Exists(dir + L"\\" + kSettingsRel)) {
+            bool ok = MakeShortcut(desk + L"\\" + kLnkSettings, dir + L"\\" + kSettingsRel, L"",
+                                   L"EchoXR Hands settings: tune your hands, applied in-game as you change them");
+            Step(ok ? ST_OK : ST_FAIL, std::wstring(L"Desktop shortcut: ") + kLnkSettings);
         }
     }
     Log(failed ? L"%d file(s) failed" : L"Done", failed);
@@ -515,12 +529,14 @@ static bool Uninstall(const std::wstring& dir, int mask) {
         if (mask & (1 << it.comp)) remove(it.rel, true);
     for (const Item& it : kLegacyFiles)
         if (mask & (1 << it.comp)) remove(it.rel, true);
-    if (mask & (1 << C_BRIDGE)) { RemoveDirectoryW((dir + L"\\EchoXR\\Hands").c_str()); RemoveDirectoryW((dir + L"\\HandTrackingBridge").c_str()); }
+    if (mask & ((1 << C_BRIDGE) | (1 << C_PLUGIN))) RemoveDirectoryW((dir + L"\\EchoXR\\Hands").c_str());   // only if nothing's left in it
+    if (mask & (1 << C_BRIDGE)) RemoveDirectoryW((dir + L"\\HandTrackingBridge").c_str());
     if (mask & (1 << C_XR)) RemoveDirectoryW((dir + L"\\EchoXR").c_str());
     std::wstring desk = DesktopDir();
     if (!desk.empty()) {
         if ((mask & (1 << C_BRIDGE)) && DeleteFileW((desk + L"\\" + kLnkBridge).c_str())) Step(ST_OK, std::wstring(L"Removed shortcut ") + kLnkBridge);
         if ((mask & (1 << C_XR)) && DeleteFileW((desk + L"\\" + kLnkXR).c_str())) Step(ST_OK, std::wstring(L"Removed shortcut ") + kLnkXR);
+        if ((mask & (1 << C_PLUGIN)) && DeleteFileW((desk + L"\\" + kLnkSettings).c_str())) Step(ST_OK, std::wstring(L"Removed shortcut ") + kLnkSettings);
     }
     Log(failed ? L"%d file(s) could not be removed" : L"Done", failed);
     return failed == 0;
@@ -586,8 +602,9 @@ static const CompInfo kComp[C_COUNT] = {
     { 0xE703, L"Finger bridge",       L"Sends your own Valve Index fingers from SteamVR" },
     { 0xE7FC, L"EchoXR runtime",      L"Runs Echo on SteamVR through OpenXR, with no Oculus app" },
     { 0xE943, L"Plugin loader",       L"dbgcore.dll: loads everything in plugins\\" },
-    { 0xE7F4, L"Desktop shortcuts",   L"EchoXR and EchoXR Hands on your desktop" },
+    { 0xE7F4, L"Desktop shortcuts",   L"EchoXR, EchoXR Hands and its settings on your desktop" },
     { 0xE768, L"Start hand tracking with EchoXR", L"Launching EchoXR also runs the finger bridge, and closes it after" },
+    { 0xE713, L"Open settings with EchoXR", L"Launching EchoXR also opens the hand tracking settings window" },
 };
 
 // Auto-start needs the bridge and EchoXR, either ticked now or already installed.
@@ -595,10 +612,19 @@ static bool AutoStartAvailable() {
     return (g_on[C_BRIDGE] || Exists(g_dir + L"\\" + kBridgeRel)) && (g_on[C_XR] || Exists(g_dir + L"\\EchoXR.exe"));
 }
 
+// Opening the settings window with EchoXR needs it (it comes with hand tracking) and EchoXR.
+static bool AutoSettingsAvailable() {
+    return (g_on[C_PLUGIN] || Exists(g_dir + L"\\" + kSettingsRel)) && (g_on[C_XR] || Exists(g_dir + L"\\EchoXR.exe"));
+}
+static bool Available(int c) {
+    return c == C_AUTOSTART ? AutoStartAvailable() : c == C_AUTOSETTINGS ? AutoSettingsAvailable() : true;
+}
+
 static int Mask() {
     int m = 0;
     for (int c = 0; c < C_COUNT; ++c) if (g_on[c]) m |= 1 << c;
     if (!AutoStartAvailable()) m &= ~(1 << C_AUTOSTART);
+    if (!AutoSettingsAvailable()) m &= ~(1 << C_AUTOSETTINGS);
     return m;
 }
 
@@ -625,12 +651,12 @@ static void PaintMain(Graphics& g) {
     Button(g, RectF(fc.X + fc.Width - 118, fc.Y + 24, 100, 36), H_CHANGE, g_dir.empty() ? L"Browse" : L"Change", B_GHOST);
 
     // components
-    SectionLabel(g, 230, L"COMPONENTS");
-    float y = 252;
+    SectionLabel(g, 222, L"COMPONENTS");
+    float y = 244;
     for (int i = 0; i < C_COUNT; ++i) {
         int c = kCardOrder[i];
-        RectF r(32, y, kW - 64, 60);
-        bool avail = c != C_AUTOSTART || AutoStartAvailable();
+        RectF r(32, y, kW - 64, 54);
+        bool avail = Available(c);
         bool on = g_on[c] && avail;
         bool hot = avail && g_hot == H_COMP0 + c;
         FillRound(g, r, 14, C(hot ? kCardHi : kCard));
@@ -638,7 +664,7 @@ static void PaintMain(Graphics& g) {
         DWORD tint = kAccent;
         std::wstring desc = kComp[c].desc, badge;
         DWORD badgeTint = kGood;
-        if (!avail) desc = L"Needs the finger bridge and the EchoXR runtime";
+        if (!avail) desc = c == C_AUTOSETTINGS ? L"Needs hand tracking and the EchoXR runtime" : L"Needs the finger bridge and the EchoXR runtime";
         if (c == C_LOADER && !g_dir.empty()) {
             switch (g_loader) {
             case L_MISSING:      badge = L"Missing"; badgeTint = kWarn; desc = L"Needed: nothing in plugins\\ loads without it"; break;
@@ -650,17 +676,17 @@ static void PaintMain(Graphics& g) {
                                  desc = L"Turn on to replace this dbgcore.dll (old one saved as .bak)"; break;
             }
         }
-        IconBubble(g, RectF(r.X + 16, r.Y + 10, 40, 40), kComp[c].icon, tint, on);
-        Text(g, kComp[c].title, g_fBodyB, C(avail ? kText : kFaint), RectF(r.X + 72, r.Y + 9, 400, 22));
+        IconBubble(g, RectF(r.X + 16, r.Y + 7, 40, 40), kComp[c].icon, tint, on);
+        Text(g, kComp[c].title, g_fBodyB, C(avail ? kText : kFaint), RectF(r.X + 72, r.Y + 6, 400, 22));
         if (!badge.empty()) {
             RectF m;
             g.MeasureString(kComp[c].title, -1, g_fBodyB, PointF(0, 0), &m);
-            Pill(g, r.X + 72 + m.Width + 8, r.Y + 20, badge, badgeTint);
+            Pill(g, r.X + 72 + m.Width + 8, r.Y + 17, badge, badgeTint);
         }
-        Text(g, desc, g_fSmall, C(c == C_LOADER && g_loader == L_FOREIGN ? kWarn : avail ? kMuted : kFaint), RectF(r.X + 72, r.Y + 32, r.Width - 150, 20));
-        Toggle(g, r.X + r.Width - 64, r.Y + 18, avail ? g_anim[c] : 0.f);
+        Text(g, desc, g_fSmall, C(c == C_LOADER && g_loader == L_FOREIGN ? kWarn : avail ? kMuted : kFaint), RectF(r.X + 72, r.Y + 28, r.Width - 150, 20));
+        Toggle(g, r.X + r.Width - 64, r.Y + 15, avail ? g_anim[c] : 0.f);
         if (avail) AddHot(r, H_COMP0 + c);
-        y += 68;
+        y += 60;
     }
 
     // warning banner
@@ -736,10 +762,14 @@ static void PaintDone(Graphics& g) {
         std::vector<std::pair<DWORD, std::wstring>> notes;
         if (g_runMask & (1 << C_PLUGIN))
             notes.push_back({ kAccent, L"Start Echo VR. Other players' tracked fingers show on their avatars." });
+        if ((g_runMask & (1 << C_PLUGIN)) && Exists(g_dir + L"\\" + kSettingsRel))
+            notes.push_back({ kAccent, L"Tune your hands with EchoXR\\Hands\\EchoXRSettings.exe. Changes show in-game while you play." });
         if ((g_runMask & (1 << C_AUTOSTART)) && Exists(g_dir + L"\\" + kBridgeRel))
             notes.push_back({ kAccent, L"Hand tracking starts by itself when you launch EchoXR. In-game, hold both hands fully open once to calibrate." });
         else if (g_runMask & (1 << C_BRIDGE))
             notes.push_back({ kAccent, L"To send your own fingers, start SteamVR, then Start hands. In-game, hold both hands fully open once to calibrate." });
+        if ((g_runMask & (1 << C_AUTOSETTINGS)) && Exists(g_dir + L"\\" + kSettingsRel))
+            notes.push_back({ kAccent, L"The settings window opens with EchoXR too, so you can tune your hands while you play." });
         if (g_runMask & (1 << C_XR))
             notes.push_back(Exists(g_dir + L"\\" + kModdedExe)
                 ? std::make_pair(kAccent, std::wstring(L"Echo on SteamVR: open SteamVR, then run EchoXR.exe --exe echovr_openxr.exe (or use the desktop shortcut)."))
@@ -859,6 +889,7 @@ static void Click(int id) {
     if (id >= H_COMP0 && id < H_COMP0 + C_COUNT) {
         g_on[id - H_COMP0] = !g_on[id - H_COMP0];
         if (g_on[C_AUTOSTART] && !AutoStartAvailable()) g_anim[C_AUTOSTART] = 0;
+        if (g_on[C_AUTOSETTINGS] && !AutoSettingsAvailable()) g_anim[C_AUTOSETTINGS] = 0;
         SetTimer(g_wnd, 1, 16, nullptr);
     }
     switch (id) {

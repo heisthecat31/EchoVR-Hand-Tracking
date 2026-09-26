@@ -120,3 +120,7 @@ PlatformAccount =
 FingerSource = auto
 # 1 = Ctrl+Alt+C recalibrates (hold both hands fully open).
 CalibrateHotkey = 1
+# 1 = 10 seconds after Echo launches, the bridge says "Please hold your hands in
+# front of your face, flat out", counts down from 3 out loud and calibrates (the
+# same as Ctrl+Alt+C). Once per launch; read each time Echo starts.
+CalibrateOnLaunch = 0

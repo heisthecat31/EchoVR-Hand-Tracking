@@ -15,5 +15,6 @@ IDR_XRLOADER  RCDATA "..\\xr\\out\\openxr_loader.dll"
 IDR_LAUNCHER  RCDATA "..\\xr\\out\\EchoXR.exe"
 IDR_LOADER    RCDATA "stage\\dbgcore.dll"
 IDR_NOTICES   RCDATA "stage\\THIRD_PARTY_NOTICES.txt"
+IDR_SETTINGS  RCDATA "..\\out\\EchoXRSettings.exe"
 
 1 24 "setup.manifest"

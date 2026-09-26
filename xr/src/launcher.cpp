@@ -17,7 +17,8 @@
 //   3. logs which OpenXR runtime is active (SteamVR, VDXR, ...).
 // Then it starts Echo with the remaining arguments and waits for it to exit. With
 // "AutoStartHands = 1" in EchoXR\echoxr.ini it also runs the finger bridge
-// (EchoXR\Hands\EchoXRHands.exe) for as long as Echo runs.
+// (EchoXR\Hands\EchoXRHands.exe) for as long as Echo runs, and with
+// "AutoStartSettings = 1" it opens the settings window (EchoXRSettings.exe) too.
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <shellapi.h>
@@ -126,6 +127,29 @@ static HANDLE StartBridge(const std::wstring& exe) {
         return nullptr;
     CloseHandle(pi.hThread);
     return pi.hProcess;
+}
+
+// The settings window (EchoXRSettings.exe): shown next to Echo without taking focus.
+static HANDLE StartSettings(const std::wstring& exe, DWORD* pid) {
+    std::wstring cmd = L"\"" + exe + L"\"";
+    std::wstring wd = exe.substr(0, exe.find_last_of(L'\\'));
+    STARTUPINFOW si = { sizeof(si) };
+    si.dwFlags = STARTF_USESHOWWINDOW;
+    si.wShowWindow = SW_SHOWNOACTIVATE;
+    PROCESS_INFORMATION pi = {};
+    if (!CreateProcessW(nullptr, &cmd[0], nullptr, nullptr, FALSE, 0, nullptr, wd.c_str(), &si, &pi))
+        return nullptr;
+    CloseHandle(pi.hThread);
+    *pid = pi.dwProcessId;
+    return pi.hProcess;
+}
+
+// Asks a process's top-level windows to close, so the settings window saves first.
+static BOOL CALLBACK CloseWindowsOf(HWND w, LPARAM pid) {
+    DWORD owner = 0;
+    GetWindowThreadProcessId(w, &owner);
+    if (owner == (DWORD)pid) PostMessageW(w, WM_CLOSE, 0, 0);
+    return TRUE;
 }
 
 // Fatal setup problem: log it, and show it too (a double-clicked console closes at once).
@@ -296,7 +320,9 @@ int wmain(int argc, wchar_t** argv) {
         // release zip: no ini shipped, so an unzip never overwrites the player's choice
         const char ini[] = "# EchoXR launcher settings\r\n"
                            "# 1 = EchoXR.exe also runs EchoXR\\Hands\\EchoXRHands.exe while Echo runs\r\n"
-                           "AutoStartHands = 1\r\n";
+                           "AutoStartHands = 1\r\n"
+                           "# 1 = EchoXR.exe also opens the hand tracking settings window (EchoXRSettings.exe)\r\n"
+                           "AutoStartSettings = 0\r\n";
         echoxr::WriteAll(xrDir + L"echoxr.ini", ini, sizeof(ini) - 1);
         Log(L"hand tracking: created EchoXR\\echoxr.ini (AutoStartHands = 1)");
     }
@@ -310,6 +336,19 @@ int wmain(int argc, wchar_t** argv) {
     } else if (hands && GetFileAttributesW(bridge.c_str()) == INVALID_FILE_ATTRIBUTES) {
         Log(L"hand tracking: %ls is missing -- reinstall EchoXR Hands", bridge.c_str());
         hands = false;
+    }
+    // 4. EchoXR\echoxr.ini "AutoStartSettings = 1": the settings window opens with Echo
+    //    and is closed (saving any pending change) when Echo exits.
+    std::wstring settingsExe = xrDir + L"Hands\\EchoXRSettings.exe";
+    HANDLE hs = nullptr;
+    DWORD settingsPid = 0;
+    if (ReadIniFlag(xrDir + L"echoxr.ini", "AutoStartSettings")) {
+        if (IsRunning(L"EchoXRSettings.exe")) Log(L"settings: EchoXRSettings.exe is already open");
+        else if (!echoxr::Exists(settingsExe)) Log(L"settings: %ls is missing -- reinstall EchoXR Hands", settingsExe.c_str());
+        else {
+            hs = StartSettings(settingsExe, &settingsPid);
+            Log(hs ? L"settings: opened EchoXRSettings.exe" : L"settings: could not start EchoXRSettings.exe (error %lu)", GetLastError());
+        }
     }
     for (;;) {
         if (hands && (!hb || WaitForSingleObject(hb, 0) == WAIT_OBJECT_0) && starts < 20 &&
@@ -325,6 +364,14 @@ int wmain(int argc, wchar_t** argv) {
     if (hb) {
         if (WaitForSingleObject(hb, 0) == WAIT_TIMEOUT) { TerminateProcess(hb, 0); Log(L"hand tracking: stopped EchoXRHands.exe"); }
         CloseHandle(hb);
+    }
+    if (hs) {
+        if (WaitForSingleObject(hs, 0) == WAIT_TIMEOUT) {
+            EnumWindows(CloseWindowsOf, (LPARAM)settingsPid);
+            if (WaitForSingleObject(hs, 3000) == WAIT_TIMEOUT) Log(L"settings: EchoXRSettings.exe is still open (left running)");
+            else Log(L"settings: closed EchoXRSettings.exe");
+        }
+        CloseHandle(hs);
     }
     DWORD code = 0;
     GetExitCodeProcess(pi.hProcess, &code);
