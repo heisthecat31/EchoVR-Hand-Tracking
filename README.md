@@ -16,7 +16,7 @@ both migrate old installs.
 | | |
 | --- | --- |
 | **Echo on SteamVR** | Echo's Oculus calls (LibOVR) are answered by ReviveXR over OpenXR, pinned to SteamVR for each launch. Details: [xr/README.md](xr/README.md). |
-| **Your own fingers** | Every finger bends on its own, and spreads apart, from the Index controllers' finger sensing. Echo normally moves middle, ring and pinky together from the grip button. |
+| **Your own fingers** | Every finger bends on its own, from the Index controllers' finger sensing (and can spread apart, with `SplayDeg`). Echo normally moves middle, ring and pinky together from the grip button. |
 | **Other controllers and hand tracking** | On Touch, Vive, WMR and HP controllers, and on controller-free hand tracking that SteamVR presents as one of them, finger curls come from the hand skeleton instead. |
 | **Other players' fingers** | The plugin sends your finger curls through a relay (`Network = 1`), and poses players who send theirs. |
 | **Auto-start** | `EchoXR.exe` can run the finger bridge alongside Echo and close it afterwards. |
@@ -35,6 +35,11 @@ From the logs of real sessions on the current Echo build:
 - **Finger sharing:** the plugin connects to the relay, sends your fingers and
   poses other players' tracked fingers on their avatars (tested with other
   players running the plugin).
+- **Quest hand tracking** through Virtual Desktop and SteamVR: every finger,
+  thumbs up included. Virtual Desktop has to send real finger data to SteamVR;
+  if SteamVR Home moves middle, ring and pinky together, the fingers are being
+  emulated from grip and trigger, and Echo gets the same. The default settings
+  were tuned on this setup.
 - **Updates:** `EchoXR.exe` found the `v0.1.0` GitHub release, downloaded it and
   installed it over an older build.
 
@@ -43,11 +48,11 @@ From the logs of real sessions on the current Echo build:
 - **Pose tuning.** The bend axis and direction are worked out from the rig
   automatically. If a finger bends the wrong way, the settings below fix it; see
   [First-run tuning](#first-run-tuning).
-- **Finger spread** (new in 0.2.0) hasn't been checked in-game yet. `SplayDeg`
-  sets how far it goes; 0 turns it off.
-- **Other controllers and hand tracking** (new in 0.2.0) haven't been tried yet.
-  If fingers don't move, run `EchoXRHands.exe --print` and look at which source
-  each hand uses.
+- **Finger spread** hasn't been checked in-game yet, so it's off by default
+  (`SplayDeg = 0`). Try 10-20 on Index controllers.
+- **Other controllers** (Vive, WMR, HP, real Touch controllers) haven't been
+  tried. If fingers don't move, run `EchoXRHands.exe --print` and look at which
+  source each hand uses.
 
 ### Limits
 
@@ -211,8 +216,9 @@ second, so you can edit it while you play. The bridge reads it when it starts.
 
 | setting | what it does |
 | --- | --- |
-| `FingerSource = auto` | `device` = SteamVR's per-finger summary from the controller (Index finger sensing, with spread). `bones` = curls from the hand skeleton's joints, measured against SteamVR's open-hand pose (other controllers, controller-free hand tracking). `auto` = `device` on Index, `bones` on everything else. `--print` shows which each hand uses. |
-| `SplayDeg = 20` | how far fingers spread per unit of Index splay, relative to your relaxed open hand. 0 = off |
+| `FingerSource = auto` | `device` = SteamVR's per-finger summary from the controller (Index finger sensing, with spread). `bones` = curls from the hand skeleton's joints, measured against SteamVR's open-hand pose (other controllers, controller-free hand tracking). `auto` = `device` on Index, `bones` on everything else. `--print` shows which each hand uses. With `bones`, each finger's zero is the straightest it has been this session, and Ctrl+Alt+C resets it to your hand as it is. |
+| `SplayDeg = 0` | how far fingers spread per unit of Index splay, relative to your relaxed open hand. 0 = off; try 10-20 on Index |
+| `ThumbStraighten = 40` | how far an open thumb stands up past its rest, per joint (thumbs up) |
 | `CalibrateHotkey = 1` | Ctrl+Alt+C recalibrates; 0 frees the hotkey |
 
 `EchoXR\echoxr.ini` holds the launcher's settings: `AutoStartHands` (run the

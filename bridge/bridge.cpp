@@ -158,8 +158,9 @@ static void LoadSettings() {
 // middle, distal at 8-10, 13-15, 18-20, 23-25 (each finger's metacarpal is one
 // before, its tip one after).
 static const int kJoint0[5] = { 3, 8, 13, 18, 23 };
-// Summed bend of the three joints at a full fist, in degrees.
-static const float kFistDeg[5] = { 120.0f, 250.0f, 250.0f, 250.0f, 240.0f };
+// How far the three joints bend together from YOUR open hand to a full fist, in
+// degrees (thumb: straight up to folded across the palm). curl = bend / span.
+static const float kSpanDeg[5] = { 80.0f, 210.0f, 220.0f, 220.0f, 210.0f };
 
 static float RelAngleDeg(const vr::HmdQuaternionf_t& ref, const vr::HmdQuaternionf_t& cur) {
     // angle of conj(ref) * cur; only w is needed: w = ref . cur
@@ -169,7 +170,16 @@ static float RelAngleDeg(const vr::HmdQuaternionf_t& ref, const vr::HmdQuaternio
     return 2.0f * acosf(w) * 57.2957795f;
 }
 
-struct BoneSide { bool haveRef = false; vr::VRBoneTransform_t ref[31]; };
+// A tracked open hand never matches SteamVR's reference pose exactly (fingers
+// read a little bent, the thumb a lot), so each finger's zero is the straightest
+// it has been this session -- opening the hand flat once sets it -- and
+// Ctrl+Alt+C resets it to the hand as it is at that moment.
+struct BoneSide {
+    bool  haveRef = false;
+    vr::VRBoneTransform_t ref[31];
+    bool  haveOpen = false, captureOpen = false;
+    float open[5];
+};
 static BoneSide g_Bones[2];
 
 static bool CurlsFromBones(vr::IVRInput* input, vr::VRActionHandle_t action, int side, float curl[5]) {
@@ -181,10 +191,20 @@ static bool CurlsFromBones(vr::IVRInput* input, vr::VRActionHandle_t action, int
     vr::VRBoneTransform_t cur[31];
     if (input->GetSkeletalBoneData(action, vr::VRSkeletalTransformSpace_Parent,
                                    vr::VRSkeletalMotionRange_WithoutController, cur, 31) != vr::VRInputError_None) return false;
+    float raw[5];
     for (int f = 0; f < 5; ++f) {
-        float sum = 0;
-        for (int j = 0; j < 3; ++j) sum += RelAngleDeg(b.ref[kJoint0[f] + j].orientation, cur[kJoint0[f] + j].orientation);
-        float c = sum / kFistDeg[f];
+        raw[f] = 0;
+        for (int j = 0; j < 3; ++j) raw[f] += RelAngleDeg(b.ref[kJoint0[f] + j].orientation, cur[kJoint0[f] + j].orientation);
+    }
+    if (!b.haveOpen || b.captureOpen) {
+        memcpy(b.open, raw, sizeof(b.open));
+        if (b.captureOpen) printf("\n%s hand: open-hand zero set\n", side ? "right" : "left");
+        b.haveOpen = true;
+        b.captureOpen = false;
+    }
+    for (int f = 0; f < 5; ++f) {
+        if (raw[f] < b.open[f]) b.open[f] = raw[f];
+        float c = (raw[f] - b.open[f]) / kSpanDeg[f];
         curl[f] = c < 0 ? 0 : c > 1 ? 1 : c;
     }
     return true;
@@ -326,6 +346,7 @@ int main(int argc, char** argv) {
             static const char cmd[] = "Calibrate = 1\n";
             sendto(g_Sock, cmd, sizeof(cmd) - 1, 0, (SOCKADDR*)&g_To, sizeof(g_To));
             printf("\ncalibrate requested -- hold both hands fully open\n");
+            g_Bones[0].captureOpen = g_Bones[1].captureOpen = true;   // hand-skeleton zero too
         }
 
         vr::VRActiveActionSet_t active = {};

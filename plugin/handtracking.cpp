@@ -149,6 +149,7 @@ struct Settings {
     char  platform[16]   = "";    // "" = leave the user ID alone; STM, PSN, XBX, OVR-ORG, OVR, BOT, DMO (PlatformPatch)
     unsigned long long platformAccount = 0;   // 0 = keep the account number; else e.g. your SteamID64
     float openStraighten = 12.0f; // degrees a fully OPEN finger straightens past the rig's relaxed bind pose
+    float thumbStraighten = 40.0f;// the same for the thumb (per joint), so an open thumb can stand up -- thumbs up
     // One Euro filter on the curls: heavy smoothing when a finger is still, light
     // when it moves fast -- kills sensor jitter without adding lag to real motion
     float filterMinCutoff = 0.5f; // Hz, smoothing at rest (lower = steadier)
@@ -161,17 +162,17 @@ struct Settings {
     int   thumbBendAxis  = AXIS_AUTO;
     float leftThumbSign  = 1.0f;
     float rightThumbSign = 1.0f;
-    float maxCurl[3]     = { 70.0f, 95.0f, 65.0f };  // degrees per joint
-    float thumbMax[3]    = { 22.0f, 34.0f, 34.0f };
+    float maxCurl[3]     = { 80.0f, 105.0f, 75.0f };  // degrees per joint
+    float thumbMax[3]    = { 50.0f, 20.0f, 20.0f };
     // Per-finger tuning, indexed by HtvFinger, in degrees. Positive = toward the
     // PINKY side of the hand (mirrored per hand, so one value suits both).
     //   spread: constant sideways offset at the knuckle
     //   twist:  tilts the curl so the finger drifts sideways as it bends
     //           (thumb: positive tilts its fold toward the palm instead)
-    float spread[5]      = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
-    float twist[5]       = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
+    float spread[5]      = { 0.0f, 1.0f, 1.0f, 1.0f, 1.0f };
+    float twist[5]       = { 1.0f, 0.0f, 0.0f, 0.0f, 0.0f };
     int   splayAxis      = 1;
-    float splayDeg       = 20.0f; // degrees per unit of splay away from the open-hand reference; 0 = off
+    float splayDeg       = 0.0f;  // degrees per unit of splay away from the open-hand reference; 0 = off
     // "auto", or five names in game-slot order, e.g. "index,middle,ring,pinky,thumb"
     char  fingerOrder[96] = "auto";
 };
@@ -236,6 +237,7 @@ static int ApplyConfigText(const std::string& text) {
                 }
             }
             else if (k == "OpenStraighten")  g_S.openStraighten = std::stof(v);
+            else if (k == "ThumbStraighten") g_S.thumbStraighten = std::stof(v);
             else if (k == "FilterMinCutoff") g_S.filterMinCutoff = std::stof(v);
             else if (k == "FilterBeta")      g_S.filterBeta = std::stof(v);
             else if (k == "FilterDCutoff")   g_S.filterDCutoff = std::stof(v);
@@ -868,6 +870,7 @@ static void PoseFingersRig(void* pose, uint16_t skel, const RigHand* rig, HandCa
             const RigJoint& rj = rf.j[k];
             float deg = c * maxDeg[k];
             if (!thumb && k >= 1) deg -= (1.0f - c) * g_S.openStraighten;
+            if (thumb) deg -= (1.0f - c) * g_S.thumbStraighten;
             deg *= sign;
 
             float axis[3] = { rj.axis[0], rj.axis[1], rj.axis[2] };

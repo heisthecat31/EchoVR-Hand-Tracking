@@ -27,6 +27,10 @@ OpenThreshold = 0.12
 UseRig = 1
 # Degrees a fully OPEN finger straightens past the rig's relaxed rest pose.
 OpenStraighten = 12
+# The same for the thumb, per joint: how far an open thumb stands up past its
+# relaxed rest (thumbs up). Raise it if a thumbs up stays folded; if the thumb
+# bends the wrong way, lower it or flip LeftThumbSign / RightThumbSign.
+ThumbStraighten = 40
 
 # Jitter filter (One Euro): steady when still, responsive when moving.
 # Still shaky -> lower FilterMinCutoff (e.g. 0.6). Laggy -> raise FilterBeta.
@@ -56,12 +60,12 @@ LeftThumbSign = 1
 RightThumbSign = 1
 
 # Degrees of bend at full curl, per joint (proximal, middle, distal)
-MaxCurl1 = 70
-MaxCurl2 = 95
-MaxCurl3 = 65
-ThumbMax1 = 22
-ThumbMax2 = 34
-ThumbMax3 = 34
+MaxCurl1 = 80
+MaxCurl2 = 105
+MaxCurl3 = 75
+ThumbMax1 = 50
+ThumbMax2 = 20
+ThumbMax3 = 20
 
 # Per-finger tuning, degrees. POSITIVE = toward the PINKY side of the hand
 # (mirrored per hand, so the same value suits both). Applies live.
@@ -69,11 +73,11 @@ ThumbMax3 = 34
 #   Twist  = makes the finger drift sideways as it curls
 #   (TwistThumb: positive tilts the thumb's fold toward the palm)
 SpreadThumb = 0
-SpreadIndex = 0
-SpreadMiddle = 0
-SpreadRing = 0
-SpreadPinky = 0
-TwistThumb = 0
+SpreadIndex = 1
+SpreadMiddle = 1
+SpreadRing = 1
+SpreadPinky = 1
+TwistThumb = 1
 TwistIndex = 0
 TwistMiddle = 0
 TwistRing = 0
@@ -83,7 +87,7 @@ TwistPinky = 0
 # (captured the first time your hand is open, and again when you calibrate).
 # Degrees per unit of spread; 0 = off.
 SplayAxis = y
-SplayDeg = 20
+SplayDeg = 0
 
 # auto = work out the game's finger slots from the knuckle positions.
 # Or list the five game slots explicitly, e.g. index,middle,ring,pinky,thumb
